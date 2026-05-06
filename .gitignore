@@ -1,2 +1,8 @@
 QUALIRA_DESIGN.md
 docs/private/
+__pycache__/
+*.py[cod]
+*.db
+*.db-journal
+.pytest_cache/
+PHASE0_REPORT.md
