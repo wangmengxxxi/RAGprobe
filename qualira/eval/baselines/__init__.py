@@ -1,1 +1,0 @@
-"""Baseline retrieval implementations."""

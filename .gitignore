@@ -1,4 +1,6 @@
 QUALIRA_DESIGN.md
+RAGPROBE_DESIGN.md
+.idea/
 docs/private/
 __pycache__/
 *.py[cod]
