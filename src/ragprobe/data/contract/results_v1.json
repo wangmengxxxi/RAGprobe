@@ -1,0 +1,59 @@
+{
+  "name": "contract-demo-v1",
+  "results": [
+    {
+      "test_case_id": "contract_case_001",
+      "query": "买方逾期付款超过30天的违约金是多少？",
+      "retrieved": [
+        {
+          "chunk_id": "chunk_seller_delivery_15",
+          "content": "卖方延期交货超过15日，应按合同总额的0.03%/日支付违约金。",
+          "score": 0.94
+        },
+        {
+          "chunk_id": "chunk_buyer_payment_30",
+          "content": "买方逾期付款超过30日，应按逾期金额的0.05%/日支付违约金。",
+          "score": 0.91
+        }
+      ]
+    },
+    {
+      "test_case_id": "contract_case_002",
+      "query": "卖方延期交货超过15日要承担什么责任？",
+      "retrieved": [
+        {
+          "chunk_id": "chunk_seller_delivery_15",
+          "content": "卖方延期交货超过15日，应按合同总额的0.03%/日支付违约金。",
+          "score": 0.96
+        }
+      ]
+    },
+    {
+      "test_case_id": "contract_case_003",
+      "query": "主合同解除通知需要提前多少天发出？",
+      "retrieved": [
+        {
+          "chunk_id": "chunk_appendix_notice",
+          "content": "附件事项变更通知应至少提前5个工作日送达对方。",
+          "score": 0.91
+        }
+      ]
+    },
+    {
+      "test_case_id": "contract_case_004",
+      "query": "保密信息未经许可可以公开披露吗？",
+      "retrieved": [
+        {
+          "chunk_id": "chunk_confidentiality",
+          "content": "任何一方未经书面许可不得向第三方披露保密信息。",
+          "score": 0.93
+        },
+        {
+          "chunk_id": "chunk_public_disclosure",
+          "content": "依法需要公开披露的信息，应按照监管流程提交。",
+          "score": 0.86
+        }
+      ]
+    }
+  ]
+}

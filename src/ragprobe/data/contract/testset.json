@@ -1,0 +1,69 @@
+{
+  "name": "contract-demo",
+  "metadata": {
+    "domain": "contract",
+    "language": "zh"
+  },
+  "cases": [
+    {
+      "id": "contract_case_001",
+      "query": "买方逾期付款超过30天的违约金是多少？",
+      "expected_chunks": ["chunk_buyer_payment_30"],
+      "hard_negatives": [
+        {
+          "chunk_id": "chunk_seller_delivery_15",
+          "confusion_type": "subject_confusion",
+          "similarity_to_correct": 0.94,
+          "reason": "主体和事件都不同：卖方延期交货不是买方逾期付款。"
+        }
+      ],
+      "difficulty": "hard",
+      "source_document": "contract_demo.md"
+    },
+    {
+      "id": "contract_case_002",
+      "query": "卖方延期交货超过15日要承担什么责任？",
+      "expected_chunks": ["chunk_seller_delivery_15"],
+      "hard_negatives": [
+        {
+          "chunk_id": "chunk_buyer_payment_30",
+          "confusion_type": "event_confusion",
+          "similarity_to_correct": 0.88,
+          "reason": "逾期付款条款不能回答延期交货责任。"
+        }
+      ],
+      "difficulty": "medium",
+      "source_document": "contract_demo.md"
+    },
+    {
+      "id": "contract_case_003",
+      "query": "主合同解除通知需要提前多少天发出？",
+      "expected_chunks": ["chunk_termination_notice"],
+      "hard_negatives": [
+        {
+          "chunk_id": "chunk_appendix_notice",
+          "confusion_type": "scope_confusion",
+          "similarity_to_correct": 0.91,
+          "reason": "附件通知条款不适用于主合同解除。"
+        }
+      ],
+      "difficulty": "hard",
+      "source_document": "contract_demo.md"
+    },
+    {
+      "id": "contract_case_004",
+      "query": "保密信息未经许可可以公开披露吗？",
+      "expected_chunks": ["chunk_confidentiality"],
+      "hard_negatives": [
+        {
+          "chunk_id": "chunk_public_disclosure",
+          "confusion_type": "semantic_only",
+          "similarity_to_correct": 0.86,
+          "reason": "公开披露流程条款不代表允许披露保密信息。"
+        }
+      ],
+      "difficulty": "easy",
+      "source_document": "contract_demo.md"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "contract-demo",
+  "cases": [
+    {
+      "id": "case_1",
+      "query": "买方逾期付款超过30天的违约金是多少？",
+      "expected_chunks": ["buyer_payment_30"],
+      "hard_negatives": [
+        {
+          "chunk_id": "seller_delivery_15",
+          "confusion_type": "subject_confusion",
+          "similarity_to_correct": 0.94
+        }
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "case_2",
+      "query": "卖方延期交货超过15日要承担什么责任？",
+      "expected_chunks": ["seller_delivery_15"],
+      "hard_negatives": [
+        {
+          "chunk_id": "buyer_payment_30",
+          "confusion_type": "event_confusion",
+          "similarity_to_correct": 0.88
+        }
+      ],
+      "difficulty": "medium"
+    }
+  ]
+}

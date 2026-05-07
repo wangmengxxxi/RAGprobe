@@ -1,4 +1,4 @@
-"""Phase 0 data model skeletons for the diagnostic core."""
+"""Data models for RAGProbe diagnostic artifacts."""
 
 from __future__ import annotations
 
@@ -59,9 +59,14 @@ class RetrievalResult:
 class FailureCase:
     test_case_id: str
     failure_type: FailureType
+    query: str = ""
     confusion_type: str | None = None
     correct_chunk_similarity: float | None = None
     false_positive_similarity: float | None = None
+    correct_rank: int | None = None
+    false_positives: list[str] = field(default_factory=list)
+    retrieved_ids: list[str] = field(default_factory=list)
+    difficulty: Difficulty | None = None
 
 
 @dataclass
@@ -90,4 +95,22 @@ class DiagnosticReport:
     confusion_distribution: dict[str, float] = field(default_factory=dict)
     system_issues: list[SystemIssue] = field(default_factory=list)
     recommendations: list[Recommendation] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MetricDelta:
+    metric: str
+    before: float
+    after: float
+    delta: float
+
+
+@dataclass
+class ComparisonReport:
+    before: DiagnosticReport
+    after: DiagnosticReport
+    deltas: list[MetricDelta] = field(default_factory=list)
+    improved_cases: list[str] = field(default_factory=list)
+    regressed_cases: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

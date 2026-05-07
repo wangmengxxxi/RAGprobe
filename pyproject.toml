@@ -37,6 +37,9 @@ ragprobe = "ragprobe.cli.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ragprobe"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/ragprobe/data" = "ragprobe/data"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

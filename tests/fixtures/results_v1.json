@@ -1,0 +1,31 @@
+{
+  "results": [
+    {
+      "test_case_id": "case_1",
+      "query": "买方逾期付款超过30天的违约金是多少？",
+      "retrieved": [
+        {
+          "chunk_id": "seller_delivery_15",
+          "content": "卖方延期交货条款",
+          "score": 0.94
+        },
+        {
+          "chunk_id": "buyer_payment_30",
+          "content": "买方逾期付款条款",
+          "score": 0.91
+        }
+      ]
+    },
+    {
+      "test_case_id": "case_2",
+      "query": "卖方延期交货超过15日要承担什么责任？",
+      "retrieved": [
+        {
+          "chunk_id": "buyer_payment_30",
+          "content": "买方逾期付款条款",
+          "score": 0.88
+        }
+      ]
+    }
+  ]
+}
