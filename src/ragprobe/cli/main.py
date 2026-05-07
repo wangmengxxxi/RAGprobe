@@ -14,6 +14,7 @@ from ragprobe.core.generator import (
     add_case,
     generate_testset_from_chunks,
     load_chunks,
+    render_quality_report,
     sample_testset,
 )
 from ragprobe.core.matching import apply_content_fallback
@@ -68,6 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--hard-negative-top-k", type=int, default=1)
     generate.add_argument("--name", default="generated-testset")
     generate.add_argument("--mode", choices=["standard"], default="standard")
+    generate.add_argument("--hn-strategy", choices=["lexical", "hybrid"], default="hybrid")
+    generate.add_argument("--quality-report", required=False)
 
     add_case_cmd = subparsers.add_parser("add-case", help="Append a manual bad case to a testset.")
     add_case_cmd.add_argument("--testset", required=True)
@@ -215,8 +218,11 @@ def _run_generate(args: argparse.Namespace) -> int:
         hard_negative_top_k=args.hard_negative_top_k,
         name=args.name,
         mode=args.mode,
+        hn_strategy=args.hn_strategy,
     )
     save_json(testset, args.output)
+    if args.quality_report:
+        _emit_text(render_quality_report(testset), args.quality_report)
     return 0
 
 

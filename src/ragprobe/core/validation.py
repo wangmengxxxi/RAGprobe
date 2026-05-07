@@ -39,6 +39,16 @@ def validate_testset(testset: TestSet) -> ValidationReport:
             errors.append(f"case[{index}] must include expected_chunks")
         if not case.hard_negatives:
             warnings.append(f"case[{index}] has no hard_negatives; FPR coverage will be limited")
+        quality = case.metadata.get("quality", {})
+        if isinstance(quality, dict):
+            if quality.get("filter_passed") is False:
+                warnings.append(f"case[{index}] failed generated quality filter")
+            if float(quality.get("score", 1.0)) < 0.6:
+                warnings.append(
+                    f"case[{index}] has low generated quality score: {quality.get('score')}"
+                )
+            for warning in quality.get("warnings", []):
+                warnings.append(f"case[{index}] quality warning: {warning}")
 
     chunks = testset.metadata.get("chunks")
     if chunks is None:
@@ -66,6 +76,19 @@ def validate_testset(testset: TestSet) -> ValidationReport:
                     f"case[{index}] hard_negatives are not present in metadata.chunks: "
                     f"{', '.join(missing_negatives)}"
                 )
+
+    quality_summary = testset.metadata.get("quality_summary", {})
+    if isinstance(quality_summary, dict):
+        coverage = float(quality_summary.get("hard_negative_coverage", 1.0))
+        average_score = float(quality_summary.get("average_quality_score", 1.0))
+        if coverage < 0.8:
+            warnings.append(
+                f"hard negative coverage is {coverage:.1%}; generated testset may be weak"
+            )
+        if average_score < 0.7:
+            warnings.append(
+                f"average generated quality score is {average_score:.3f}; review before CI use"
+            )
 
     return ValidationReport(valid=not errors, errors=errors, warnings=warnings)
 

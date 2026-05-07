@@ -1,4 +1,4 @@
-"""Lightweight testset generation and maintenance helpers for v0.3."""
+"""Testset generation and maintenance helpers."""
 
 from __future__ import annotations
 
@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from ragprobe.core.models import HardNegative, TestCase, TestSet
+
+MIN_QUERY_LENGTH = 4
+WEAK_HARD_NEGATIVE_THRESHOLD = 0.05
+STRONG_HARD_NEGATIVE_THRESHOLD = 0.2
 
 
 @dataclass
@@ -40,9 +44,12 @@ def generate_testset_from_chunks(
     hard_negative_top_k: int = 1,
     name: str = "generated-testset",
     mode: str = "standard",
+    hn_strategy: str = "hybrid",
 ) -> TestSet:
     if mode != "standard":
-        raise ValueError("v0.3 currently supports only mode='standard'")
+        raise ValueError("v0.5 currently supports only mode='standard'")
+    if hn_strategy not in {"lexical", "hybrid"}:
+        raise ValueError("hn_strategy must be 'lexical' or 'hybrid'")
     if not chunks:
         raise ValueError("chunks must contain at least one item")
     if num_cases is not None and num_cases <= 0:
@@ -51,7 +58,13 @@ def generate_testset_from_chunks(
     selected = chunks[:num_cases] if num_cases is not None else chunks
     cases = []
     for index, chunk in enumerate(selected, start=1):
-        candidates = mine_hard_negatives(chunk, chunks, top_k=hard_negative_top_k)
+        query = generate_query(chunk)
+        candidates = mine_hard_negatives(
+            chunk,
+            chunks,
+            top_k=hard_negative_top_k,
+            strategy=hn_strategy,
+        )
         hard_negatives = [
             HardNegative(
                 chunk_id=candidate.chunk.chunk_id,
@@ -61,10 +74,15 @@ def generate_testset_from_chunks(
             )
             for candidate in candidates
         ]
+        quality = assess_case_quality(
+            query=query,
+            expected_chunk=chunk,
+            hard_negatives=hard_negatives,
+        )
         cases.append(
             TestCase(
                 id=f"generated_case_{index:03d}",
-                query=generate_query(chunk),
+                query=query,
                 expected_chunks=[chunk.chunk_id],
                 hard_negatives=hard_negatives,
                 difficulty=label_difficulty(hard_negatives),
@@ -73,18 +91,23 @@ def generate_testset_from_chunks(
                     "created_from": "chunks",
                     "source_chunk_id": chunk.chunk_id,
                     "generator_mode": mode,
+                    "hard_negative_strategy": hn_strategy,
                     "tags": list(chunk.metadata.get("tags", [])),
+                    "quality": quality,
                 },
             )
         )
 
+    quality_summary = summarize_testset_quality(cases)
     return TestSet(
         cases=cases,
         name=name,
         metadata={
-            "source": "ragprobe-v0.3-lightweight-generator",
+            "source": "ragprobe-v0.5-quality-generator",
             "created_from": "chunks",
+            "hard_negative_strategy": hn_strategy,
             "chunks": {chunk.chunk_id: chunk.content for chunk in chunks},
+            "quality_summary": quality_summary,
         },
     )
 
@@ -95,33 +118,39 @@ class HardNegativeCandidate:
     similarity: float
     confusion_type: str
     reason: str
+    signals: list[str] = field(default_factory=list)
 
 
 def mine_hard_negatives(
     target: DocumentChunk,
     chunks: list[DocumentChunk],
     top_k: int = 1,
+    strategy: str = "hybrid",
 ) -> list[HardNegativeCandidate]:
     if top_k <= 0:
         return []
+    if strategy not in {"lexical", "hybrid"}:
+        raise ValueError("strategy must be 'lexical' or 'hybrid'")
 
     candidates = []
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         if chunk.chunk_id == target.chunk_id:
             continue
-        similarity = content_similarity(target.content, chunk.content)
-        if similarity <= 0:
+        target_index = _find_chunk_index(chunks, target.chunk_id)
+        score, signals = _candidate_score(target, chunk, target_index, index, strategy)
+        if score <= 0:
             continue
         confusion_type = infer_confusion_type(target, chunk)
         candidates.append(
             HardNegativeCandidate(
                 chunk=chunk,
-                similarity=round(similarity, 4),
+                similarity=round(score, 4),
                 confusion_type=confusion_type,
                 reason=(
-                    "Similar content surface with different "
-                    f"{confusion_type.replace('_', ' ')}."
+                    f"Candidate selected by {strategy} signals: {', '.join(signals)}; "
+                    f"different {confusion_type.replace('_', ' ')}."
                 ),
+                signals=signals,
             )
         )
 
@@ -219,11 +248,113 @@ def label_difficulty(hard_negatives: list[HardNegative]) -> str:
     if not hard_negatives:
         return "easy"
     max_similarity = max(item.similarity_to_correct or 0.0 for item in hard_negatives)
-    if max_similarity >= 0.75:
+    if max_similarity >= STRONG_HARD_NEGATIVE_THRESHOLD:
         return "hard"
-    if max_similarity >= 0.45:
+    if max_similarity >= WEAK_HARD_NEGATIVE_THRESHOLD:
         return "medium"
     return "easy"
+
+
+def assess_case_quality(
+    query: str,
+    expected_chunk: DocumentChunk,
+    hard_negatives: list[HardNegative],
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    score = 1.0
+
+    if len(query.strip()) < MIN_QUERY_LENGTH:
+        warnings.append("query_too_short")
+        score -= 0.25
+    if not expected_chunk.content.strip():
+        warnings.append("empty_expected_chunk")
+        score -= 0.4
+    if not hard_negatives:
+        warnings.append("missing_hard_negative")
+        score -= 0.3
+    else:
+        max_similarity = max(item.similarity_to_correct or 0.0 for item in hard_negatives)
+        if max_similarity < WEAK_HARD_NEGATIVE_THRESHOLD:
+            warnings.append("weak_hard_negative")
+            score -= 0.2
+        if len({item.chunk_id for item in hard_negatives}) != len(hard_negatives):
+            warnings.append("duplicate_hard_negative")
+            score -= 0.2
+
+    score = max(0.0, min(1.0, round(score, 3)))
+    return {
+        "score": score,
+        "warnings": warnings,
+        "filter_passed": score >= 0.6 and not {"empty_expected_chunk"} & set(warnings),
+    }
+
+
+def summarize_testset_quality(cases: list[TestCase]) -> dict[str, Any]:
+    if not cases:
+        return {
+            "total_cases": 0,
+            "hard_negative_coverage": 0.0,
+            "average_hard_negatives_per_case": 0.0,
+            "difficulty_distribution": {},
+            "confusion_distribution": {},
+            "warning_counts": {},
+        }
+
+    cases_with_hn = sum(1 for case in cases if case.hard_negatives)
+    total_hn = sum(len(case.hard_negatives) for case in cases)
+    difficulty_distribution = _ratio_counts([case.difficulty for case in cases])
+    confusion_distribution = _ratio_counts(
+        [hn.confusion_type for case in cases for hn in case.hard_negatives]
+    )
+    warnings = [
+        warning
+        for case in cases
+        for warning in case.metadata.get("quality", {}).get("warnings", [])
+    ]
+
+    return {
+        "total_cases": len(cases),
+        "hard_negative_coverage": round(cases_with_hn / len(cases), 4),
+        "average_hard_negatives_per_case": round(total_hn / len(cases), 4),
+        "difficulty_distribution": difficulty_distribution,
+        "confusion_distribution": confusion_distribution,
+        "warning_counts": dict(sorted(_count_items(warnings).items())),
+        "average_quality_score": round(
+            sum(case.metadata.get("quality", {}).get("score", 0.0) for case in cases)
+            / len(cases),
+            4,
+        ),
+    }
+
+
+def render_quality_report(testset: TestSet) -> str:
+    summary = testset.metadata.get("quality_summary") or summarize_testset_quality(testset.cases)
+    lines = [
+        "# RAGProbe Testset Quality Report",
+        "",
+        "## Summary",
+        "",
+        f"- Testset: {testset.name or 'unnamed'}",
+        f"- Total cases: {summary.get('total_cases', 0)}",
+        f"- Hard negative coverage: {summary.get('hard_negative_coverage', 0.0):.1%}",
+        "- Average hard negatives per case: "
+        f"{summary.get('average_hard_negatives_per_case', 0.0):.2f}",
+        f"- Average quality score: {summary.get('average_quality_score', 0.0):.3f}",
+        "",
+        "## Difficulty Distribution",
+        "",
+    ]
+    _append_distribution(lines, summary.get("difficulty_distribution", {}))
+    lines.extend(["", "## Confusion Distribution", ""])
+    _append_distribution(lines, summary.get("confusion_distribution", {}))
+    lines.extend(["", "## Warnings", ""])
+    warning_counts = summary.get("warning_counts", {})
+    if warning_counts:
+        for warning, count in warning_counts.items():
+            lines.append(f"- {warning}: {count}")
+    else:
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
 
 
 def content_similarity(left: str, right: str) -> float:
@@ -234,6 +365,37 @@ def content_similarity(left: str, right: str) -> float:
     overlap = len(left_tokens & right_tokens)
     union = len(left_tokens | right_tokens)
     return overlap / union if union else 0.0
+
+
+def metadata_similarity(left: DocumentChunk, right: DocumentChunk) -> float:
+    keys = set(left.metadata) | set(right.metadata)
+    useful_keys = {
+        key
+        for key in keys
+        if key
+        in {
+            "subject",
+            "party",
+            "actor",
+            "condition",
+            "event",
+            "trigger",
+            "scope",
+            "section",
+            "topic",
+            "title",
+            "document_type",
+        }
+    }
+    if not useful_keys:
+        return 0.0
+    matches = sum(
+        1
+        for key in useful_keys
+        if left.metadata.get(key) is not None
+        and left.metadata.get(key) == right.metadata.get(key)
+    )
+    return matches / len(useful_keys)
 
 
 def infer_confusion_type(target: DocumentChunk, candidate: DocumentChunk) -> str:
@@ -381,3 +543,72 @@ def _metadata_topic(chunk: DocumentChunk) -> str:
         if value:
             return str(value)
     return ""
+
+
+def _candidate_score(
+    target: DocumentChunk,
+    candidate: DocumentChunk,
+    target_index: int,
+    candidate_index: int,
+    strategy: str,
+) -> tuple[float, list[str]]:
+    lexical = content_similarity(target.content, candidate.content)
+    score = lexical
+    signals = []
+    if lexical > 0:
+        signals.append("lexical")
+
+    if strategy == "hybrid":
+        meta = metadata_similarity(target, candidate)
+        if meta > 0:
+            score += meta * 0.2
+            signals.append("metadata")
+        if _same_section(target, candidate):
+            score += 0.15
+            signals.append("same_section")
+        if target_index >= 0 and abs(target_index - candidate_index) == 1:
+            score += 0.1
+            signals.append("adjacent")
+        if infer_confusion_type(target, candidate) != "semantic_only":
+            score += 0.05
+            signals.append("confusion_metadata")
+
+    return min(score, 1.0), signals
+
+
+def _same_section(left: DocumentChunk, right: DocumentChunk) -> bool:
+    return bool(
+        left.metadata.get("section")
+        and right.metadata.get("section")
+        and left.metadata.get("section") == right.metadata.get("section")
+    )
+
+
+def _find_chunk_index(chunks: list[DocumentChunk], chunk_id: str) -> int:
+    for index, chunk in enumerate(chunks):
+        if chunk.chunk_id == chunk_id:
+            return index
+    return -1
+
+
+def _count_items(items: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item] = counts.get(item, 0) + 1
+    return counts
+
+
+def _ratio_counts(items: list[str]) -> dict[str, float]:
+    counts = _count_items(items)
+    total = sum(counts.values())
+    if not total:
+        return {}
+    return {key: round(value / total, 4) for key, value in sorted(counts.items())}
+
+
+def _append_distribution(lines: list[str], distribution: dict[str, float]) -> None:
+    if not distribution:
+        lines.append("- none")
+        return
+    for key, value in distribution.items():
+        lines.append(f"- {key}: {value:.1%}")
