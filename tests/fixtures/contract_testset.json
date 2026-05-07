@@ -1,5 +1,11 @@
 {
   "name": "contract-demo",
+  "metadata": {
+    "chunks": {
+      "buyer_payment_30": "买方逾期付款条款",
+      "seller_delivery_15": "卖方延期交货条款"
+    }
+  },
   "cases": [
     {
       "id": "case_1",

@@ -7,12 +7,15 @@ from collections import Counter
 from ragprobe.core.models import (
     DiagnosticReport,
     FailureCase,
+    MetricSignal,
     Recommendation,
     RetrievalResult,
     SystemIssue,
     TestCase,
     TestSet,
 )
+from ragprobe.core.matching import collect_match_stats
+from ragprobe.core.validation import validate_results
 
 
 class DiagnosticAnalyzer:
@@ -22,6 +25,7 @@ class DiagnosticAnalyzer:
         self.precision_ks = precision_ks
 
     def analyze(self, testset: TestSet, results: list[RetrievalResult]) -> DiagnosticReport:
+        validate_results(testset, results)
         cases_by_id = {case.id: case for case in testset.cases}
         results_by_case = {result.test_case_id: result for result in results}
         total_cases = len(testset.cases)
@@ -36,6 +40,7 @@ class DiagnosticAnalyzer:
         false_positive_hits = 0
         confusion_counts: Counter[str] = Counter()
         failure_cases: list[FailureCase] = []
+        match_stats = collect_match_stats(results)
 
         for case in testset.cases:
             result = results_by_case.get(case.id)
@@ -83,6 +88,7 @@ class DiagnosticAnalyzer:
             failure_cases=_rank_failures(failure_cases),
             confusion_distribution=_distribution(confusion_counts),
             system_issues=_detect_basic_issues(fpr=fpr, hit_rate=hits / total_cases),
+            metric_signals=_metric_signals(fpr=fpr, hit_rate=hits / total_cases, mrr=reciprocal_rank_sum / total_cases),
             recommendations=_basic_recommendations(fpr=fpr, hit_rate=hits / total_cases),
             metadata={
                 "testset_name": testset.name,
@@ -91,6 +97,7 @@ class DiagnosticAnalyzer:
                 "hits": hits,
                 "total_hard_negatives": total_hard_negatives,
                 "false_positive_hits": false_positive_hits,
+                "match_stats": match_stats,
             },
         )
         return report
@@ -196,3 +203,75 @@ def _basic_recommendations(fpr: float, hit_rate: float) -> list[Recommendation]:
             )
         )
     return recommendations
+
+
+def _metric_signals(fpr: float, hit_rate: float, mrr: float) -> list[MetricSignal]:
+    signals: list[MetricSignal] = []
+
+    if hit_rate >= 0.7 and fpr >= 0.3:
+        signals.append(
+            MetricSignal(
+                name="high_recall_high_confusion",
+                severity="high",
+                summary=(
+                    "The retriever often finds expected chunks, but it also retrieves hard "
+                    "negatives. This usually means recall is not the main bottleneck; ranking, "
+                    "reranking, filtering, or chunk disambiguation may deserve attention."
+                ),
+                evidence=f"hit_rate={hit_rate:.3f}, fpr={fpr:.3f}",
+            )
+        )
+    elif hit_rate < 0.7 and fpr < 0.3:
+        signals.append(
+            MetricSignal(
+                name="low_recall_low_confusion",
+                severity="medium",
+                summary=(
+                    "The retriever does not retrieve many expected chunks, but it is not "
+                    "frequently pulling known hard negatives. This often points to recall "
+                    "coverage, top-k, indexing, or query/document wording gaps."
+                ),
+                evidence=f"hit_rate={hit_rate:.3f}, fpr={fpr:.3f}",
+            )
+        )
+    elif hit_rate < 0.7 and fpr >= 0.3:
+        signals.append(
+            MetricSignal(
+                name="low_recall_high_confusion",
+                severity="high",
+                summary=(
+                    "The retriever both misses expected chunks and retrieves confusing "
+                    "negatives. This is a broad retrieval quality issue rather than a single "
+                    "threshold tuning problem."
+                ),
+                evidence=f"hit_rate={hit_rate:.3f}, fpr={fpr:.3f}",
+            )
+        )
+
+    if hit_rate >= 0.7 and mrr < 0.5:
+        signals.append(
+            MetricSignal(
+                name="correct_but_ranked_low",
+                severity="medium",
+                summary=(
+                    "Expected chunks are often present but not ranked early. This indicates "
+                    "the candidate pool may be adequate while ranking quality is weak."
+                ),
+                evidence=f"hit_rate={hit_rate:.3f}, mrr={mrr:.3f}",
+            )
+        )
+
+    if not signals:
+        signals.append(
+            MetricSignal(
+                name="no_obvious_metric_warning",
+                severity="low",
+                summary=(
+                    "No obvious metric-level warning was detected from hit rate, MRR, and FPR. "
+                    "Review worst cases and confusion distribution for finer-grained issues."
+                ),
+                evidence=f"hit_rate={hit_rate:.3f}, mrr={mrr:.3f}, fpr={fpr:.3f}",
+            )
+        )
+
+    return signals

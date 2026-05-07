@@ -13,6 +13,7 @@ from ragprobe.core.models import (
     FailureCase,
     HardNegative,
     MetricDelta,
+    MetricSignal,
     Recommendation,
     RetrievalResult,
     RetrievedChunk,
@@ -85,7 +86,7 @@ def load_results(path: str | Path) -> list[RetrievalResult]:
         retrieved = [
             RetrievedChunk(
                 content=item.get("content", ""),
-                score=float(item.get("score", 0.0)),
+                score=float(item["score"]) if "score" in item and item["score"] is not None else None,
                 metadata=dict(item.get("metadata", {})),
                 chunk_id=item.get("chunk_id"),
             )
@@ -136,6 +137,15 @@ def diagnostic_report_from_dict(data: dict[str, Any]) -> DiagnosticReport:
                 affected_percentage=float(item.get("affected_percentage", 0.0)),
             )
             for item in data.get("system_issues", [])
+        ],
+        metric_signals=[
+            MetricSignal(
+                name=item["name"],
+                severity=item["severity"],
+                summary=item.get("summary", ""),
+                evidence=item.get("evidence", ""),
+            )
+            for item in data.get("metric_signals", [])
         ],
         recommendations=[
             Recommendation(

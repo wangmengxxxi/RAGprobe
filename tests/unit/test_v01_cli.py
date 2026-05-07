@@ -30,6 +30,7 @@ def test_diagnose_cli_writes_markdown() -> None:
 
     assert code == 0
     assert "RAGProbe Diagnostic Report" in output.read_text(encoding="utf-8")
+    assert "Metric Signals" in output.read_text(encoding="utf-8")
 
 
 def test_compare_cli_runs() -> None:

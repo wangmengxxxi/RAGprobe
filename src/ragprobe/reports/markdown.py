@@ -33,6 +33,17 @@ def render_markdown(report: DiagnosticReport) -> str:
     else:
         lines.append("- none")
 
+    if report.metric_signals:
+        lines.extend(["", "## Metric Signals", ""])
+        for signal in report.metric_signals:
+            lines.extend(
+                [
+                    f"- **[{signal.severity.upper()}] {signal.name}**",
+                    f"  - {signal.summary}",
+                    f"  - Evidence: `{signal.evidence}`",
+                ]
+            )
+
     lines.extend(["", "## Worst Cases", ""])
     if report.failure_cases:
         for index, case in enumerate(report.failure_cases[:5], start=1):
@@ -58,6 +69,16 @@ def render_markdown(report: DiagnosticReport) -> str:
         lines.extend(["", "## Recommendations", ""])
         for item in sorted(report.recommendations, key=lambda rec: rec.priority):
             lines.append(f"{item.priority}. {item.action}")
+
+    match_stats = report.metadata.get("match_stats", {})
+    if match_stats and (match_stats.get("content_fallback", 0) or match_stats.get("unmatched", 0)):
+        lines.extend(["", "## Matching Notes", ""])
+        if match_stats.get("content_fallback", 0):
+            lines.append(
+                f"- {match_stats['content_fallback']} retrieved chunks were matched by content fallback."
+            )
+        if match_stats.get("unmatched", 0):
+            lines.append(f"- {match_stats['unmatched']} retrieved chunks could not be matched.")
 
     return "\n".join(lines) + "\n"
 

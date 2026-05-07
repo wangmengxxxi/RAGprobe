@@ -25,6 +25,13 @@ def render_terminal(report: DiagnosticReport) -> str:
     else:
         lines.append("  none")
 
+    if report.metric_signals:
+        lines.extend(["", "Metric Signals"])
+        for signal in report.metric_signals:
+            lines.append(f"  [{signal.severity.upper()}] {signal.name}")
+            lines.append(f"     {signal.summary}")
+            lines.append(f"     Evidence: {signal.evidence}")
+
     lines.extend(["", "Worst Cases"])
     if report.failure_cases:
         for index, case in enumerate(report.failure_cases[:5], start=1):
@@ -41,6 +48,18 @@ def render_terminal(report: DiagnosticReport) -> str:
         lines.extend(["", "Recommendations"])
         for item in sorted(report.recommendations, key=lambda rec: rec.priority):
             lines.append(f"  {item.priority}. {item.action}")
+
+    match_stats = report.metadata.get("match_stats", {})
+    if match_stats and match_stats.get("content_fallback", 0):
+        lines.extend(["", "Matching Notes"])
+        lines.append(
+            "  "
+            f"{match_stats['content_fallback']} retrieved chunks were matched by content fallback; "
+            "prefer chunk_id for higher confidence."
+        )
+    if match_stats and match_stats.get("unmatched", 0):
+        lines.extend(["", "Matching Warnings"])
+        lines.append(f"  {match_stats['unmatched']} retrieved chunks could not be matched.")
 
     return "\n".join(lines) + "\n"
 

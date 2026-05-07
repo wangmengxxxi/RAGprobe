@@ -40,7 +40,7 @@ class TestSet:
 @dataclass
 class RetrievedChunk:
     content: str
-    score: float
+    score: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     chunk_id: str | None = None
 
@@ -86,6 +86,14 @@ class Recommendation:
 
 
 @dataclass
+class MetricSignal:
+    name: str
+    severity: Severity
+    summary: str
+    evidence: str
+
+
+@dataclass
 class DiagnosticReport:
     hit_rate: float = 0.0
     mrr: float = 0.0
@@ -94,6 +102,7 @@ class DiagnosticReport:
     failure_cases: list[FailureCase] = field(default_factory=list)
     confusion_distribution: dict[str, float] = field(default_factory=dict)
     system_issues: list[SystemIssue] = field(default_factory=list)
+    metric_signals: list[MetricSignal] = field(default_factory=list)
     recommendations: list[Recommendation] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 

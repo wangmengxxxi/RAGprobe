@@ -1,0 +1,7 @@
+{
+  "headers": {
+    "Authorization": "Bearer test-token"
+  },
+  "timeout": 5,
+  "batch_size": 2
+}

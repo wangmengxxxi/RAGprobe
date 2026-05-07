@@ -23,6 +23,7 @@ def test_analyzer_computes_v01_metrics() -> None:
         "event_confusion": 0.5,
         "subject_confusion": 0.5,
     }
+    assert report.metric_signals[0].name == "low_recall_high_confusion"
     assert [case.test_case_id for case in report.failure_cases] == ["case_2", "case_1"]
 
 

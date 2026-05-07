@@ -27,4 +27,13 @@ def test_phase0_cli_surface_exists() -> None:
     parser = build_parser()
     subcommands = parser._subparsers._group_actions[0].choices
 
-    assert {"demo", "diagnose", "compare", "check"}.issubset(subcommands)
+    assert {
+        "demo",
+        "run",
+        "validate",
+        "export-queries",
+        "import-results",
+        "diagnose",
+        "compare",
+        "check",
+    }.issubset(subcommands)
