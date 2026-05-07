@@ -8,3 +8,4 @@ __pycache__/
 *.db-journal
 .pytest_cache/
 PHASE0_REPORT.md
+tests/tmp_outputs/

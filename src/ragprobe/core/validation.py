@@ -47,6 +47,25 @@ def validate_testset(testset: TestSet) -> ValidationReport:
         )
     elif not isinstance(chunks, dict):
         errors.append("testset.metadata.chunks must be an object mapping chunk_id to content")
+    else:
+        known_chunks = set(chunks)
+        for index, case in enumerate(testset.cases):
+            missing_expected = [
+                chunk_id for chunk_id in case.expected_chunks if chunk_id not in known_chunks
+            ]
+            if missing_expected:
+                warnings.append(
+                    f"case[{index}] expected_chunks are not present in metadata.chunks: "
+                    f"{', '.join(missing_expected)}"
+                )
+            missing_negatives = [
+                item.chunk_id for item in case.hard_negatives if item.chunk_id not in known_chunks
+            ]
+            if missing_negatives:
+                warnings.append(
+                    f"case[{index}] hard_negatives are not present in metadata.chunks: "
+                    f"{', '.join(missing_negatives)}"
+                )
 
     return ValidationReport(valid=not errors, errors=errors, warnings=warnings)
 

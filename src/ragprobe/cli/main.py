@@ -10,6 +10,12 @@ from pathlib import Path
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.checks import check_thresholds
 from ragprobe.core.compare import compare_reports
+from ragprobe.core.generator import (
+    add_case,
+    generate_testset_from_chunks,
+    load_chunks,
+    sample_testset,
+)
 from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.runner import (
     load_endpoint_config,
@@ -21,7 +27,6 @@ from ragprobe.core.validation import validate_results_report, validate_testset
 from ragprobe.io.jsonl import load_report, load_results, load_testset, save_json
 from ragprobe.reports.markdown import render_compare_markdown, render_markdown
 from ragprobe.reports.terminal import render_compare_terminal, render_terminal
-
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEMO_DIR = PACKAGE_ROOT / "data" / "contract"
@@ -38,8 +43,16 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="Run a retriever against a testset.")
     run.add_argument("--testset", required=True)
     source = run.add_mutually_exclusive_group(required=True)
-    source.add_argument("--retriever", required=False, help="Python file exposing retrieve(query, top_k).")
-    source.add_argument("--retriever-cmd", required=False, help="JSONL subprocess retriever command.")
+    source.add_argument(
+        "--retriever",
+        required=False,
+        help="Python file exposing retrieve(query, top_k).",
+    )
+    source.add_argument(
+        "--retriever-cmd",
+        required=False,
+        help="JSONL subprocess retriever command.",
+    )
     source.add_argument("--endpoint", required=False, help="HTTP endpoint accepting POST JSON.")
     run.add_argument("--output", required=True)
     run.add_argument("--top-k", type=int, default=10)
@@ -48,11 +61,42 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--batch-size", type=int, default=1)
     run.add_argument("--content-match-threshold", type=float, default=0.9)
 
-    validate = subparsers.add_parser("validate", help="Validate testset and optional results schema.")
+    generate = subparsers.add_parser("generate", help="Generate a lightweight testset from chunks.")
+    generate.add_argument("--chunks", required=True)
+    generate.add_argument("--output", required=True)
+    generate.add_argument("--num-cases", type=int, required=False)
+    generate.add_argument("--hard-negative-top-k", type=int, default=1)
+    generate.add_argument("--name", default="generated-testset")
+    generate.add_argument("--mode", choices=["standard"], default="standard")
+
+    add_case_cmd = subparsers.add_parser("add-case", help="Append a manual bad case to a testset.")
+    add_case_cmd.add_argument("--testset", required=True)
+    add_case_cmd.add_argument("--output", required=True)
+    add_case_cmd.add_argument("--query", required=True)
+    add_case_cmd.add_argument("--expected-chunk", required=True)
+    add_case_cmd.add_argument("--hard-negative", action="append", default=[])
+    add_case_cmd.add_argument("--confusion-type", default="manual")
+    add_case_cmd.add_argument("--difficulty", choices=["easy", "medium", "hard"], default="medium")
+    add_case_cmd.add_argument("--source-document", default="")
+    add_case_cmd.add_argument("--tag", action="append", default=[])
+    add_case_cmd.add_argument("--case-id", required=False)
+
+    sample = subparsers.add_parser("sample", help="Export testset cases for human review.")
+    sample.add_argument("--testset", required=True)
+    sample.add_argument("--output", required=True)
+    sample.add_argument("--limit", type=int, default=10)
+
+    validate = subparsers.add_parser(
+        "validate",
+        help="Validate testset and optional results schema.",
+    )
     validate.add_argument("--testset", required=True)
     validate.add_argument("--results", required=False)
 
-    export_queries = subparsers.add_parser("export-queries", help="Export testset queries as JSONL.")
+    export_queries = subparsers.add_parser(
+        "export-queries",
+        help="Export testset queries as JSONL.",
+    )
     export_queries.add_argument("--testset", required=True)
     export_queries.add_argument("--output", required=True)
     export_queries.add_argument("--top-k", type=int, default=10)
@@ -99,6 +143,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run_demo(args)
     if args.command == "run":
         return _run_run(args)
+    if args.command == "generate":
+        return _run_generate(args)
+    if args.command == "add-case":
+        return _run_add_case(args)
+    if args.command == "sample":
+        return _run_sample(args)
     if args.command == "validate":
         return _run_validate(args)
     if args.command == "export-queries":
@@ -152,6 +202,47 @@ def _run_run(args: argparse.Namespace) -> int:
             content_fallback_threshold=args.content_match_threshold,
         )
     save_json({"results": results}, args.output)
+    return 0
+
+
+def _run_generate(args: argparse.Namespace) -> int:
+    chunks = load_chunks(args.chunks)
+    testset = generate_testset_from_chunks(
+        chunks,
+        num_cases=args.num_cases,
+        hard_negative_top_k=args.hard_negative_top_k,
+        name=args.name,
+        mode=args.mode,
+    )
+    save_json(testset, args.output)
+    return 0
+
+
+def _run_add_case(args: argparse.Namespace) -> int:
+    testset = load_testset(args.testset)
+    updated = add_case(
+        testset,
+        query=args.query,
+        expected_chunk=args.expected_chunk,
+        hard_negative_ids=args.hard_negative,
+        confusion_type=args.confusion_type,
+        difficulty=args.difficulty,
+        source_document=args.source_document,
+        tags=args.tag,
+        case_id=args.case_id,
+    )
+    save_json(updated, args.output)
+    return 0
+
+
+def _run_sample(args: argparse.Namespace) -> int:
+    testset = load_testset(args.testset)
+    rows = sample_testset(testset, limit=args.limit)
+    target = Path(args.output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as file:
+        for row in rows:
+            file.write(json.dumps(row, ensure_ascii=False) + "\n")
     return 0
 
 
@@ -219,14 +310,26 @@ def _run_validate(args: argparse.Namespace) -> int:
 
 
 def _run_diagnose(args: argparse.Namespace) -> int:
-    report = _analyze(args.testset, args.results, content_match_threshold=args.content_match_threshold)
+    report = _analyze(
+        args.testset,
+        args.results,
+        content_match_threshold=args.content_match_threshold,
+    )
     _emit_report(report, args.format, args.output)
     return 0
 
 
 def _run_compare(args: argparse.Namespace) -> int:
-    before = _analyze(args.testset, args.before, content_match_threshold=args.content_match_threshold)
-    after = _analyze(args.testset, args.after, content_match_threshold=args.content_match_threshold)
+    before = _analyze(
+        args.testset,
+        args.before,
+        content_match_threshold=args.content_match_threshold,
+    )
+    after = _analyze(
+        args.testset,
+        args.after,
+        content_match_threshold=args.content_match_threshold,
+    )
     report = compare_reports(before, after)
     if args.format == "json":
         if args.output:
@@ -235,7 +338,11 @@ def _run_compare(args: argparse.Namespace) -> int:
             print_json(report)
         return 0
 
-    text = render_compare_markdown(report) if args.format == "markdown" else render_compare_terminal(report)
+    text = (
+        render_compare_markdown(report)
+        if args.format == "markdown"
+        else render_compare_terminal(report)
+    )
     _emit_text(text, args.output)
     return 0
 
@@ -246,7 +353,11 @@ def _run_check(args: argparse.Namespace) -> int:
     else:
         if not args.testset or not args.results:
             raise SystemExit("check requires --report or both --testset and --results")
-        report = _analyze(args.testset, args.results, content_match_threshold=args.content_match_threshold)
+        report = _analyze(
+            args.testset,
+            args.results,
+            content_match_threshold=args.content_match_threshold,
+        )
 
     result = check_thresholds(report, min_hit_rate=args.min_hit_rate, max_fpr=args.max_fpr)
     for message in result.messages:

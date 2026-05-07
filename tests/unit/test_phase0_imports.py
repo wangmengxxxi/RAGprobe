@@ -29,6 +29,9 @@ def test_phase0_cli_surface_exists() -> None:
 
     assert {
         "demo",
+        "generate",
+        "add-case",
+        "sample",
         "run",
         "validate",
         "export-queries",
