@@ -32,6 +32,13 @@ def render_terminal(report: DiagnosticReport) -> str:
             lines.append(f"     {signal.summary}")
             lines.append(f"     Evidence: {signal.evidence}")
 
+    if report.failure_patterns:
+        lines.extend(["", "Failure Patterns"])
+        for pattern in report.failure_patterns:
+            lines.append(f"  [{pattern.severity.upper()}] {pattern.pattern_type}")
+            lines.append(f"     Affected: {pattern.affected_percentage:.1%}")
+            lines.append(f"     Evidence: {pattern.evidence}")
+
     lines.extend(["", "Worst Cases"])
     if report.failure_cases:
         for index, case in enumerate(report.failure_cases[:5], start=1):
@@ -48,6 +55,9 @@ def render_terminal(report: DiagnosticReport) -> str:
         lines.extend(["", "Recommendations"])
         for item in sorted(report.recommendations, key=lambda rec: rec.priority):
             lines.append(f"  {item.priority}. {item.action}")
+            if item.evidence:
+                lines.append(f"     Evidence: {item.evidence}")
+            lines.append(f"     Scope: {item.scope}")
 
     match_stats = report.metadata.get("match_stats", {})
     if match_stats and match_stats.get("content_fallback", 0):

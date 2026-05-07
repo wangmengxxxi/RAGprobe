@@ -11,6 +11,7 @@ from ragprobe.core.models import (
     ComparisonReport,
     DiagnosticReport,
     FailureCase,
+    FailurePattern,
     HardNegative,
     MetricDelta,
     MetricSignal,
@@ -126,6 +127,16 @@ def diagnostic_report_from_dict(data: dict[str, Any]) -> DiagnosticReport:
             )
             for item in data.get("failure_cases", [])
         ],
+        failure_patterns=[
+            FailurePattern(
+                pattern_type=item["pattern_type"],
+                severity=item["severity"],
+                evidence=item.get("evidence", ""),
+                affected_cases=list(item.get("affected_cases", [])),
+                affected_percentage=float(item.get("affected_percentage", 0.0)),
+            )
+            for item in data.get("failure_patterns", [])
+        ],
         confusion_distribution={
             str(key): float(value) for key, value in data.get("confusion_distribution", {}).items()
         },
@@ -151,8 +162,10 @@ def diagnostic_report_from_dict(data: dict[str, Any]) -> DiagnosticReport:
             Recommendation(
                 priority=int(item["priority"]),
                 action=item["action"],
-                expected_impact=item.get("expected_impact", ""),
+                evidence=item.get("evidence", ""),
+                scope=item.get("scope", "reference_only"),
                 effort=item.get("effort", ""),
+                expected_impact=item.get("expected_impact", ""),
             )
             for item in data.get("recommendations", [])
         ],

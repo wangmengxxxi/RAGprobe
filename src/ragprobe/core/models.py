@@ -70,6 +70,15 @@ class FailureCase:
 
 
 @dataclass
+class FailurePattern:
+    pattern_type: str
+    severity: Severity
+    evidence: str
+    affected_cases: list[str] = field(default_factory=list)
+    affected_percentage: float = 0.0
+
+
+@dataclass
 class SystemIssue:
     issue_type: str
     severity: Severity
@@ -81,8 +90,10 @@ class SystemIssue:
 class Recommendation:
     priority: int
     action: str
-    expected_impact: str = ""
+    evidence: str = ""
+    scope: str = "reference_only"
     effort: str = ""
+    expected_impact: str = ""
 
 
 @dataclass
@@ -100,6 +111,7 @@ class DiagnosticReport:
     precision_at_k: dict[int, float] = field(default_factory=dict)
     fpr: float = 0.0
     failure_cases: list[FailureCase] = field(default_factory=list)
+    failure_patterns: list[FailurePattern] = field(default_factory=list)
     confusion_distribution: dict[str, float] = field(default_factory=dict)
     system_issues: list[SystemIssue] = field(default_factory=list)
     metric_signals: list[MetricSignal] = field(default_factory=list)

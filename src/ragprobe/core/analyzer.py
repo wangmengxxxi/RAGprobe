@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ragprobe.core.classifier import classify_failure_patterns
+from ragprobe.core.issues import detect_system_issues
+from ragprobe.core.matching import collect_match_stats
 from ragprobe.core.models import (
     DiagnosticReport,
     FailureCase,
     MetricSignal,
-    Recommendation,
     RetrievalResult,
-    SystemIssue,
     TestCase,
     TestSet,
 )
-from ragprobe.core.matching import collect_match_stats
+from ragprobe.core.recommendations import build_recommendations
 from ragprobe.core.validation import validate_results
 
 
@@ -26,7 +27,6 @@ class DiagnosticAnalyzer:
 
     def analyze(self, testset: TestSet, results: list[RetrievalResult]) -> DiagnosticReport:
         validate_results(testset, results)
-        cases_by_id = {case.id: case for case in testset.cases}
         results_by_case = {result.test_case_id: result for result in results}
         total_cases = len(testset.cases)
 
@@ -65,7 +65,9 @@ class DiagnosticAnalyzer:
                 hits += 1
                 reciprocal_rank_sum += 1 / correct_rank
 
-            false_positives = [chunk_id for chunk_id in retrieved_ids if chunk_id in hard_negative_map]
+            false_positives = [
+                chunk_id for chunk_id in retrieved_ids if chunk_id in hard_negative_map
+            ]
             total_hard_negatives += len(hard_negative_map)
             false_positive_hits += len(set(false_positives))
             for chunk_id in set(false_positives):
@@ -77,19 +79,36 @@ class DiagnosticAnalyzer:
                     precision_sums[k] += len([cid for cid in top_k_ids if cid in expected_ids]) / k
 
             if (not hit) or false_positives:
-                failure_cases.append(_build_failure_case(case, retrieved_ids, correct_rank, false_positives))
+                failure_cases.append(
+                    _build_failure_case(case, retrieved_ids, correct_rank, false_positives)
+                )
 
         fpr = false_positive_hits / total_hard_negatives if total_hard_negatives else 0.0
+        hit_rate = hits / total_cases
+        mrr = reciprocal_rank_sum / total_cases
+        ranked_failures = _rank_failures(failure_cases)
+        confusion_distribution = _distribution(confusion_counts)
+        failure_patterns = classify_failure_patterns(ranked_failures, results, total_cases)
+        system_issues = detect_system_issues(
+            hit_rate=hit_rate,
+            mrr=mrr,
+            fpr=fpr,
+            failure_patterns=failure_patterns,
+            confusion_distribution=confusion_distribution,
+            match_stats=match_stats,
+            testset=testset,
+        )
         report = DiagnosticReport(
-            hit_rate=hits / total_cases,
-            mrr=reciprocal_rank_sum / total_cases,
+            hit_rate=hit_rate,
+            mrr=mrr,
             precision_at_k={k: precision_sums[k] / total_cases for k in self.precision_ks},
             fpr=fpr,
-            failure_cases=_rank_failures(failure_cases),
-            confusion_distribution=_distribution(confusion_counts),
-            system_issues=_detect_basic_issues(fpr=fpr, hit_rate=hits / total_cases),
-            metric_signals=_metric_signals(fpr=fpr, hit_rate=hits / total_cases, mrr=reciprocal_rank_sum / total_cases),
-            recommendations=_basic_recommendations(fpr=fpr, hit_rate=hits / total_cases),
+            failure_cases=ranked_failures,
+            failure_patterns=failure_patterns,
+            confusion_distribution=confusion_distribution,
+            system_issues=system_issues,
+            metric_signals=_metric_signals(fpr=fpr, hit_rate=hit_rate, mrr=mrr),
+            recommendations=build_recommendations(system_issues, failure_patterns),
             metadata={
                 "testset_name": testset.name,
                 "total_cases": total_cases,
@@ -98,6 +117,7 @@ class DiagnosticAnalyzer:
                 "total_hard_negatives": total_hard_negatives,
                 "false_positive_hits": false_positive_hits,
                 "match_stats": match_stats,
+                "low_confidence_match_rate": _low_confidence_match_rate(match_stats),
             },
         )
         return report
@@ -157,52 +177,6 @@ def _distribution(counts: Counter[str]) -> dict[str, float]:
     if total == 0:
         return {}
     return {key: value / total for key, value in sorted(counts.items())}
-
-
-def _detect_basic_issues(fpr: float, hit_rate: float) -> list[SystemIssue]:
-    issues = []
-    if fpr >= 0.3:
-        issues.append(
-            SystemIssue(
-                issue_type="hard_negative_confusion",
-                severity="high",
-                evidence=f"FPR is {fpr:.2f}, indicating frequent hard negative retrieval.",
-                affected_percentage=fpr,
-            )
-        )
-    if hit_rate < 0.7:
-        issues.append(
-            SystemIssue(
-                issue_type="low_hit_rate",
-                severity="high" if hit_rate < 0.5 else "medium",
-                evidence=f"Hit rate is {hit_rate:.2f}, below the default v0.1 target of 0.70.",
-                affected_percentage=1 - hit_rate,
-            )
-        )
-    return issues
-
-
-def _basic_recommendations(fpr: float, hit_rate: float) -> list[Recommendation]:
-    recommendations = []
-    if fpr >= 0.3:
-        recommendations.append(
-            Recommendation(
-                priority=1,
-                action="Inspect hard negative cases and consider reranking or stricter metadata filters.",
-                expected_impact="Reduce retrieval of similar but incorrect chunks.",
-                effort="medium",
-            )
-        )
-    if hit_rate < 0.7:
-        recommendations.append(
-            Recommendation(
-                priority=2,
-                action="Review missed cases for chunking, query wording, or top-k coverage problems.",
-                expected_impact="Improve the rate of retrieving expected chunks.",
-                effort="medium",
-            )
-        )
-    return recommendations
 
 
 def _metric_signals(fpr: float, hit_rate: float, mrr: float) -> list[MetricSignal]:
@@ -275,3 +249,11 @@ def _metric_signals(fpr: float, hit_rate: float, mrr: float) -> list[MetricSigna
         )
 
     return signals
+
+
+def _low_confidence_match_rate(match_stats: dict[str, int]) -> float:
+    total = sum(match_stats.values())
+    if not total:
+        return 0.0
+    low_confidence = match_stats.get("content_fallback", 0) + match_stats.get("unmatched", 0)
+    return low_confidence / total

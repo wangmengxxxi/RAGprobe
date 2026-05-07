@@ -3,6 +3,7 @@
 from ragprobe.core.models import (
     DiagnosticReport,
     FailureCase,
+    FailurePattern,
     HardNegative,
     ComparisonReport,
     MetricSignal,
@@ -18,6 +19,7 @@ from ragprobe.core.models import (
 __all__ = [
     "DiagnosticReport",
     "FailureCase",
+    "FailurePattern",
     "HardNegative",
     "ComparisonReport",
     "MetricSignal",

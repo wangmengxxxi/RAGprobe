@@ -126,7 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--results", required=False)
     check.add_argument("--testset", required=False)
     check.add_argument("--min-hit-rate", type=float, required=False)
+    check.add_argument("--min-mrr", type=float, required=False)
     check.add_argument("--max-fpr", type=float, required=False)
+    check.add_argument("--max-low-confidence-match-rate", type=float, required=False)
     check.add_argument("--content-match-threshold", type=float, default=0.9)
 
     return parser
@@ -359,7 +361,13 @@ def _run_check(args: argparse.Namespace) -> int:
             content_match_threshold=args.content_match_threshold,
         )
 
-    result = check_thresholds(report, min_hit_rate=args.min_hit_rate, max_fpr=args.max_fpr)
+    result = check_thresholds(
+        report,
+        min_hit_rate=args.min_hit_rate,
+        min_mrr=args.min_mrr,
+        max_fpr=args.max_fpr,
+        max_low_confidence_match_rate=args.max_low_confidence_match_rate,
+    )
     for message in result.messages:
         print(message)
     return 0 if result.passed else 1
