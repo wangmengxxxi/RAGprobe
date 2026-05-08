@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "ragprobe"
 version = "1.3.0"
-description = "Retrieval diagnostics for RAG systems."
+description = "Retrieval diagnostics and regression testing for RAG systems."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "RAGProbe contributors" }
 ]
-keywords = ["rag", "retrieval", "evaluation", "diagnostics"]
+keywords = ["rag", "retrieval", "evaluation", "diagnostics", "hard-negative", "ci"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -41,9 +41,6 @@ ragprobe = "ragprobe.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ragprobe"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/ragprobe/data" = "ragprobe/data"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,14 @@
+<svg width="900" height="220" viewBox="0 0 900 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="220" rx="28" fill="#F8FAFC"/>
+  <g transform="translate(68 48)">
+    <circle cx="62" cy="62" r="54" fill="#EEF6FF"/>
+    <circle cx="62" cy="62" r="44" stroke="#0F172A" stroke-width="7"/>
+    <path d="M32 62H88" stroke="#0F172A" stroke-width="8" stroke-linecap="round"/>
+    <path d="M73 42L94 62L73 82" stroke="#0F172A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="32" cy="62" r="7" fill="#14B8A6"/>
+    <circle cx="96" cy="62" r="6" fill="#F43F5E"/>
+    <path d="M100 100L121 121" stroke="#0F172A" stroke-width="9" stroke-linecap="round"/>
+  </g>
+  <text x="230" y="102" fill="#0F172A" font-size="62" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="800" letter-spacing="0">RAGProbe</text>
+  <text x="234" y="150" fill="#475569" font-size="25" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="500" letter-spacing="0">Retrieval diagnostics for hard-negative RAG failures</text>
+</svg>

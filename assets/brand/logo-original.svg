@@ -1,0 +1,15 @@
+<svg width="900" height="260" viewBox="0 0 900 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="260" rx="34" fill="#0B1020"/>
+  <g transform="translate(58 48)">
+    <rect x="0" y="0" width="164" height="164" rx="36" fill="#111A33"/>
+    <path d="M45 54C57 42 73 36 92 36C121 36 144 56 144 82C144 108 121 128 92 128C73 128 57 122 45 110" stroke="#67E8F9" stroke-width="14" stroke-linecap="round"/>
+    <path d="M46 82H113" stroke="#F8FAFC" stroke-width="14" stroke-linecap="round"/>
+    <path d="M100 64L120 82L100 100" stroke="#F8FAFC" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="47" cy="82" r="16" fill="#22C55E"/>
+    <circle cx="130" cy="82" r="9" fill="#FB7185"/>
+    <path d="M38 140L128 140" stroke="#334155" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <text x="258" y="111" fill="#F8FAFC" font-size="64" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="800" letter-spacing="0">RAGProbe</text>
+  <text x="262" y="162" fill="#94A3B8" font-size="28" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="500" letter-spacing="0">Retrieval diagnostics for RAG systems</text>
+  <text x="262" y="202" fill="#67E8F9" font-size="22" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="600" letter-spacing="0">Find hard negatives before they reach users</text>
+</svg>
