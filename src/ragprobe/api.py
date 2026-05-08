@@ -7,6 +7,7 @@ from typing import Any
 
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.audit import AuditReport, audit_testset, save_audit_report
+from ragprobe.core.baseline import run_baseline_retriever
 from ragprobe.core.checks import CheckResult, check_thresholds
 from ragprobe.core.compare import compare_reports
 from ragprobe.core.experiment import ExperimentReport, run_experiment
@@ -192,12 +193,14 @@ class RAGProbe:
         retriever_fn=None,
         retriever_cmd: str | None = None,
         endpoint: str | None = None,
+        baseline: str | None = None,
         endpoint_config: str | Path | None = None,
         output: str | Path | None = None,
         top_k: int = 10,
         timeout: float = 30.0,
         batch_size: int = 1,
         content_match_threshold: float = 0.9,
+        embedding_dimensions: int = 256,
         ) -> list[RetrievalResult]:
         loaded_testset = _coerce_testset(testset)
         sources = [
@@ -205,11 +208,20 @@ class RAGProbe:
             retriever_fn is not None,
             retriever_cmd is not None,
             endpoint is not None,
+            baseline is not None,
         ]
         if sum(sources) != 1:
             raise ValueError("run requires exactly one retriever source")
 
-        if retriever is not None:
+        if baseline is not None:
+            results = run_baseline_retriever(
+                loaded_testset,
+                baseline,
+                top_k=top_k,
+                dimensions=embedding_dimensions,
+                content_fallback_threshold=content_match_threshold,
+            )
+        elif retriever is not None:
             results = run_retriever_script(
                 loaded_testset,
                 retriever,
@@ -433,6 +445,7 @@ class RAGProbe:
         retriever_fn=None,
         retriever_cmd: str | None = None,
         endpoint: str | None = None,
+        baseline: str | None = None,
         endpoint_config: str | Path | None = None,
         llm: str | None = None,
         model: str | None = None,
@@ -462,6 +475,7 @@ class RAGProbe:
             retriever_fn=retriever_fn,
             retriever_cmd=retriever_cmd,
             endpoint=endpoint,
+            baseline=baseline,
             endpoint_config=endpoint_config,
             top_k=top_k,
         )

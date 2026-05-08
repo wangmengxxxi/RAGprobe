@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ragprobe.core.analyzer import DiagnosticAnalyzer
+from ragprobe.core.baseline import run_baseline_retriever
 from ragprobe.core.compare import compare_reports
 from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.models import ComparisonReport, DiagnosticReport, RetrievalResult, TestSet
@@ -24,11 +25,13 @@ from ragprobe.io.jsonl import load_json, load_testset, save_json
 @dataclass
 class ExperimentRetrieverSpec:
     name: str
+    baseline: str | None = None
     retriever: str | None = None
     retriever_cmd: str | None = None
     endpoint: str | None = None
     endpoint_config: str | None = None
     top_k: int | None = None
+    embedding_dimensions: int | None = None
     timeout: float | None = None
     batch_size: int | None = None
     content_match_threshold: float | None = None
@@ -176,11 +179,13 @@ def _parse_retrievers(payload: dict[str, Any]) -> list[ExperimentRetrieverSpec]:
     for raw in raw_specs:
         spec = ExperimentRetrieverSpec(
             name=str(raw["name"]),
+            baseline=raw.get("baseline"),
             retriever=raw.get("retriever"),
             retriever_cmd=raw.get("retriever_cmd"),
             endpoint=raw.get("endpoint"),
             endpoint_config=raw.get("endpoint_config"),
             top_k=raw.get("top_k"),
+            embedding_dimensions=raw.get("embedding_dimensions"),
             timeout=raw.get("timeout"),
             batch_size=raw.get("batch_size"),
             content_match_threshold=raw.get("content_match_threshold"),
@@ -189,12 +194,13 @@ def _parse_retrievers(payload: dict[str, Any]) -> list[ExperimentRetrieverSpec]:
             raise ValueError(f"duplicate retriever name: {spec.name}")
         names.add(spec.name)
         source_count = sum(
-            item is not None for item in [spec.retriever, spec.retriever_cmd, spec.endpoint]
+            item is not None
+            for item in [spec.baseline, spec.retriever, spec.retriever_cmd, spec.endpoint]
         )
         if source_count != 1:
             raise ValueError(
-                f"retriever '{spec.name}' must define exactly one of retriever, "
-                "retriever_cmd, or endpoint"
+                f"retriever '{spec.name}' must define exactly one of baseline, "
+                "retriever, retriever_cmd, or endpoint"
             )
         specs.append(spec)
     return specs
@@ -215,6 +221,14 @@ def _run_spec(
     batch_size = int(spec.batch_size or default_batch_size)
     match_threshold = float(spec.content_match_threshold or default_match_threshold)
 
+    if spec.baseline:
+        return run_baseline_retriever(
+            testset,
+            spec.baseline,
+            top_k=top_k,
+            dimensions=int(spec.embedding_dimensions or 256),
+            content_fallback_threshold=match_threshold,
+        )
     if spec.retriever:
         return run_retriever_script(
             testset,

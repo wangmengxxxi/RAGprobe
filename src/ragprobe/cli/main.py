@@ -10,6 +10,7 @@ from pathlib import Path
 from ragprobe import __version__
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.audit import audit_testset
+from ragprobe.core.baseline import run_baseline_retriever
 from ragprobe.core.checks import check_thresholds
 from ragprobe.core.compare import compare_reports
 from ragprobe.core.experiment import run_experiment
@@ -92,12 +93,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSONL subprocess retriever command.",
     )
     source.add_argument("--endpoint", required=False, help="HTTP endpoint accepting POST JSON.")
+    source.add_argument(
+        "--baseline",
+        choices=["lexical", "embedding"],
+        required=False,
+        help="Built-in local baseline retriever over testset.metadata.chunks.",
+    )
     run.add_argument("--output", required=True)
     run.add_argument("--top-k", type=int, default=10)
     run.add_argument("--timeout", type=float, default=30.0)
     run.add_argument("--endpoint-config", required=False)
     run.add_argument("--batch-size", type=int, default=1)
     run.add_argument("--content-match-threshold", type=float, default=0.9)
+    run.add_argument("--embedding-dimensions", type=int, default=256)
 
     generate = subparsers.add_parser(
         "generate",
@@ -333,7 +341,15 @@ def _run_demo(args: argparse.Namespace) -> int:
 
 def _run_run(args: argparse.Namespace) -> int:
     testset = load_testset(args.testset)
-    if args.retriever:
+    if args.baseline:
+        results = run_baseline_retriever(
+            testset,
+            args.baseline,
+            top_k=args.top_k,
+            dimensions=args.embedding_dimensions,
+            content_fallback_threshold=args.content_match_threshold,
+        )
+    elif args.retriever:
         results = run_retriever_script(
             testset,
             args.retriever,

@@ -57,6 +57,15 @@ python -m ragprobe run \
   --output .tmp/contract-http-results.json
 ```
 
+## Built-in Baseline
+
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --baseline embedding \
+  --output .tmp/contract-embedding-baseline-results.json
+```
+
 ## CI Check
 
 ```bash

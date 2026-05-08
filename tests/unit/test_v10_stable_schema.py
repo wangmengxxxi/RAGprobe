@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from ragprobe import __version__
 from ragprobe.cli.main import main
 from ragprobe.core.audit import audit_testset
 from ragprobe.core.llm_generation import LLMGenerationConfig, LLMJudgeDecision
@@ -25,13 +26,13 @@ class PassingJudge:
         )
 
 
-def test_version_is_1_0_0(capsys) -> None:
+def test_cli_version_matches_package_version(capsys) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
 
     captured = capsys.readouterr()
     assert exc.value.code == 0
-    assert "ragprobe 1.0.0" in captured.out
+    assert f"ragprobe {__version__}" in captured.out
 
 
 def test_generated_testset_and_results_include_schema_metadata() -> None:

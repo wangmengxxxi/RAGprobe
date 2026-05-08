@@ -17,7 +17,6 @@ from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.models import RetrievalResult, RetrievedChunk, TestSet
 from ragprobe.core.validation import validate_results
 
-
 RetrieverFn = Callable[[str, int], list[dict[str, Any]]]
 
 

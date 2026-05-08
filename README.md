@@ -74,6 +74,15 @@ python -m ragprobe diagnose \
   --results .tmp/contract-results.json
 ```
 
+Run a built-in local baseline without writing a retriever script:
+
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --baseline embedding \
+  --output .tmp/embedding-baseline-results.json
+```
+
 Write a Markdown report:
 
 ```bash
@@ -239,6 +248,16 @@ report = probe.experiment(
 )
 ```
 
+Built-in baseline retriever:
+
+```python
+results = probe.run(
+    testset="examples/contract/testset.json",
+    baseline="embedding",
+    top_k=10,
+)
+```
+
 Audit and repair:
 
 ```python
@@ -316,6 +335,27 @@ python -m ragprobe run \
   --endpoint-config examples/contract/endpoint_config.json \
   --output .tmp/http-results.json
 ```
+
+### Built-in Baselines
+
+RAGProbe includes deterministic local baselines that search
+`testset.metadata.chunks` directly:
+
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --baseline embedding \
+  --output .tmp/embedding-baseline-results.json
+```
+
+Supported baseline names:
+
+- `lexical`: token-overlap scoring
+- `embedding`: hashed token-vector cosine scoring
+
+These baselines do not call an API, download a model, or require an LLM key. They
+are intended as reproducible comparison anchors for CI and experiments, not as a
+replacement for your production embedding stack.
 
 ## Compare Retriever Changes
 
@@ -449,9 +489,8 @@ python -m ragprobe validate --testset .tmp/generated-testset.json
 
 ## Roadmap
 
-RAGProbe v1.0 freezes the core CLI and JSON schema for early production use.
-Future v1.x work can improve embedding baselines, experiment parallelism, and
-release automation without changing the core artifact contracts.
+RAGProbe v1.x keeps the core JSON artifact contracts stable while adding
+optional baseline, experiment, and release-polish features around them.
 
 ## License
 

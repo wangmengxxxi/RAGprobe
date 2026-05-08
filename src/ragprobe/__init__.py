@@ -2,6 +2,7 @@
 
 from ragprobe.api import RAGProbe
 from ragprobe.core.audit import AuditReport
+from ragprobe.core.baseline import run_baseline_retriever
 from ragprobe.core.experiment import ExperimentReport
 from ragprobe.core.models import (
     ComparisonReport,
@@ -20,11 +21,12 @@ from ragprobe.core.models import (
 )
 from ragprobe.core.repair import RepairApplyResult, RepairPlan
 
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "__version__",
     "RAGProbe",
+    "run_baseline_retriever",
     "AuditReport",
     "ExperimentReport",
     "RepairApplyResult",
