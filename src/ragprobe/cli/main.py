@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ragprobe import __version__
 from ragprobe.core.analyzer import DiagnosticAnalyzer
+from ragprobe.core.audit import audit_testset
 from ragprobe.core.checks import check_thresholds
 from ragprobe.core.compare import compare_reports
 from ragprobe.core.experiment import run_experiment
@@ -40,6 +41,7 @@ from ragprobe.core.runner import (
 from ragprobe.core.validation import validate_results_report, validate_testset
 from ragprobe.io.jsonl import load_report, load_results, load_testset, save_json
 from ragprobe.reports.markdown import (
+    render_audit_markdown,
     render_compare_markdown,
     render_experiment_markdown,
     render_markdown,
@@ -204,6 +206,28 @@ def build_parser() -> argparse.ArgumentParser:
     experiment.add_argument("--config", required=True, help="Experiment JSON config path.")
     experiment.add_argument("--output-dir", required=True, help="Directory for experiment outputs.")
 
+    audit = subparsers.add_parser(
+        "audit",
+        help="Audit testset quality with an LLM judge.",
+        description="Use an LLM judge to flag suspicious expected chunks and hard negatives.",
+    )
+    audit.add_argument("--testset", required=True)
+    audit.add_argument("--output", required=True)
+    audit.add_argument("--markdown", required=False)
+    audit.add_argument("--llm", choices=["qwen", "openai-compatible"], required=True)
+    audit.add_argument("--model", default=DEFAULT_QWEN_MODEL)
+    audit.add_argument("--base-url", required=False)
+    audit.add_argument("--api-key-env", default="AI_API_KEY")
+    audit.add_argument("--sample-size", type=int, required=False)
+    audit.add_argument("--case-id", action="append", default=[])
+    audit.add_argument("--cache-dir", default=".ragprobe_cache")
+    audit.add_argument("--no-cache", action="store_true")
+    audit.add_argument(
+        "--fail-on-suspicious",
+        action="store_true",
+        help="Return exit code 1 if any audited case is suspicious or failed.",
+    )
+
     check = subparsers.add_parser(
         "check",
         help="Fail when diagnostic metrics cross thresholds.",
@@ -251,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_compare(args)
         if args.command == "experiment":
             return _run_experiment(args)
+        if args.command == "audit":
+            return _run_audit(args)
         if args.command == "check":
             return _run_check(args)
     except (
@@ -563,6 +589,44 @@ def _run_experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_audit(args: argparse.Namespace) -> int:
+    base_url = _resolve_llm_base_url(args.llm, args.base_url)
+    client = _build_llm_client(
+        provider=args.llm,
+        model=args.model,
+        base_url=base_url,
+        api_key_env=args.api_key_env,
+    )
+    config = LLMGenerationConfig(
+        provider=args.llm,
+        model=args.model,
+        base_url=base_url,
+        api_key_env=args.api_key_env,
+        prompt_version="ragprobe-v0.9-testset-audit-v1",
+    )
+    report = audit_testset(
+        args.testset,
+        judge_client=client,
+        config=config,
+        sample_size=args.sample_size,
+        case_ids=args.case_id or None,
+        cache_dir=args.cache_dir,
+        use_cache=not args.no_cache,
+    )
+    save_json(report, args.output)
+    if args.markdown:
+        _emit_text(render_audit_markdown(report), args.markdown)
+    print(
+        "audit summary: "
+        f"passed={report.summary.get('passed', 0)}, "
+        f"suspicious={report.summary.get('suspicious', 0)}, "
+        f"failed={report.summary.get('failed', 0)}"
+    )
+    if args.fail_on_suspicious and report.summary.get("requires_review", 0):
+        return 1
+    return 0
+
+
 def _run_check(args: argparse.Namespace) -> int:
     if args.report:
         report = load_report(args.report)
@@ -596,6 +660,38 @@ def _analyze(
     results = load_results(results_path)
     results = apply_content_fallback(testset, results, threshold=content_match_threshold)
     return DiagnosticAnalyzer().analyze(testset, results)
+
+
+def _resolve_llm_base_url(provider: str, base_url: str | None) -> str:
+    if provider == "qwen":
+        return base_url or DEFAULT_QWEN_BASE_URL
+    if provider == "openai-compatible":
+        if not base_url:
+            raise ValueError("--base-url is required for --llm openai-compatible")
+        return base_url
+    raise ValueError(f"unsupported LLM provider: {provider}")
+
+
+def _build_llm_client(
+    *,
+    provider: str,
+    model: str,
+    base_url: str,
+    api_key_env: str,
+):
+    if provider == "qwen":
+        return QwenClient.from_env(
+            env_var=api_key_env,
+            model=model,
+            base_url=base_url,
+        )
+    if provider == "openai-compatible":
+        return OpenAICompatibleClient.from_env(
+            env_var=api_key_env,
+            model=model,
+            base_url=base_url,
+        )
+    raise ValueError(f"unsupported LLM provider: {provider}")
 
 
 def _emit_report(report, fmt: str, output: str | None) -> None:

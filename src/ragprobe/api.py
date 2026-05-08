@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ragprobe.core.analyzer import DiagnosticAnalyzer
+from ragprobe.core.audit import AuditReport, audit_testset, save_audit_report
 from ragprobe.core.checks import CheckResult, check_thresholds
 from ragprobe.core.compare import compare_reports
 from ragprobe.core.experiment import ExperimentReport, run_experiment
@@ -282,6 +283,78 @@ class RAGProbe:
     ) -> ExperimentReport:
         """Run a multi-retriever experiment from a JSON-like config."""
         return run_experiment(config, output_dir=output_dir)
+
+    def audit(
+        self,
+        *,
+        testset: TestSet | str | Path,
+        output: str | Path | None = None,
+        markdown: str | Path | None = None,
+        llm: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key_env: str | None = None,
+        sample_size: int | None = None,
+        case_ids: list[str] | None = None,
+        cache_dir: str | Path | None = None,
+        use_cache: bool | None = None,
+        judge_client=None,
+    ) -> AuditReport:
+        """Audit an existing testset with an LLM judge."""
+        provider = llm or self.llm
+        if judge_client is None and not provider:
+            raise ValueError("audit requires llm or judge_client")
+        selected_model = model or self.model
+        selected_api_key_env = api_key_env or self.api_key_env
+        selected_cache_dir = self.cache_dir if cache_dir is None else cache_dir
+        selected_use_cache = self.use_cache if use_cache is None else use_cache
+
+        if judge_client is None:
+            if provider == "qwen":
+                selected_base_url = base_url or self.base_url or DEFAULT_QWEN_BASE_URL
+                judge_client = QwenClient.from_env(
+                    env_var=selected_api_key_env,
+                    model=selected_model,
+                    base_url=selected_base_url,
+                )
+            elif provider == "openai-compatible":
+                selected_base_url = base_url or self.base_url
+                if not selected_base_url:
+                    raise ValueError("base_url is required for llm='openai-compatible'")
+                judge_client = OpenAICompatibleClient.from_env(
+                    env_var=selected_api_key_env,
+                    model=selected_model,
+                    base_url=selected_base_url,
+                )
+            else:
+                raise ValueError(f"unsupported LLM provider: {provider}")
+        else:
+            selected_base_url = base_url or self.base_url or DEFAULT_QWEN_BASE_URL
+            provider = provider or "custom"
+
+        config = LLMGenerationConfig(
+            provider=provider,
+            model=selected_model,
+            base_url=selected_base_url,
+            api_key_env=selected_api_key_env,
+            prompt_version="ragprobe-v0.9-testset-audit-v1",
+        )
+        report = audit_testset(
+            testset,
+            judge_client=judge_client,
+            config=config,
+            sample_size=sample_size,
+            case_ids=case_ids,
+            cache_dir=selected_cache_dir,
+            use_cache=selected_use_cache,
+        )
+        if output:
+            save_audit_report(report, output)
+        if markdown:
+            from ragprobe.reports.markdown import render_audit_markdown
+
+            _write_text(markdown, render_audit_markdown(report))
+        return report
 
     def check(
         self,

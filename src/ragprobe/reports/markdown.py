@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ragprobe.core.audit import AuditReport
 from ragprobe.core.experiment import ExperimentReport
 from ragprobe.core.models import ComparisonReport, DiagnosticReport
 
@@ -189,3 +190,74 @@ def render_experiment_markdown(report: ExperimentReport) -> str:
         lines.append(f"- {run.name} report: `{report_files.get(run.name, run.report_path)}`")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_audit_markdown(report: AuditReport) -> str:
+    lines = [
+        "# RAGProbe Testset Audit Report",
+        "",
+        "## Summary",
+        "",
+        f"- Testset: {report.testset_name or 'unnamed'}",
+        f"- Total cases: {report.total_cases}",
+        f"- Audited cases: {report.audited_cases}",
+        f"- Passed: {report.summary.get('passed', 0)}",
+        f"- Suspicious: {report.summary.get('suspicious', 0)}",
+        f"- Failed: {report.summary.get('failed', 0)}",
+        f"- Requires review: {report.summary.get('requires_review', 0)}",
+        "",
+        "## Warning Counts",
+        "",
+    ]
+    warning_counts = report.summary.get("warning_counts", {})
+    if warning_counts:
+        for warning, count in warning_counts.items():
+            lines.append(f"- {warning}: {count}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Case Findings", ""])
+    if not report.findings:
+        lines.append("- none")
+    for finding in report.findings:
+        lines.extend(
+            [
+                f"### {finding.case_id} [{finding.status}]",
+                "",
+                f"- Query: {finding.query}",
+                f"- Recommended action: {finding.recommended_action}",
+                "- Warnings: "
+                + (", ".join(finding.warnings) if finding.warnings else "none"),
+                "",
+                "Expected chunks:",
+            ]
+        )
+        if finding.expected_findings:
+            for item in finding.expected_findings:
+                lines.append(
+                    f"- `{item.chunk_id}` answerable={item.answerable} "
+                    f"risk={item.risk} confidence={_format_confidence(item.confidence)}"
+                )
+                if item.reason:
+                    lines.append(f"  - Reason: {item.reason}")
+        else:
+            lines.append("- none")
+        lines.append("")
+        lines.append("Hard negatives:")
+        if finding.hard_negative_findings:
+            for item in finding.hard_negative_findings:
+                lines.append(
+                    f"- `{item.chunk_id}` answerable={item.answerable} "
+                    f"risk={item.risk} confidence={_format_confidence(item.confidence)}"
+                )
+                if item.reason:
+                    lines.append(f"  - Reason: {item.reason}")
+        else:
+            lines.append("- none")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _format_confidence(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
