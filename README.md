@@ -513,23 +513,6 @@ python -m ragprobe run \
 
 这两个 baseline 不下载模型、不调用 API，适合作为 CI 和实验中的稳定对照组。
 
-## PyPI 发布前检查
-
-建议发布前执行：
-
-```bash
-python -m pytest
-python -m build
-python -m twine check dist/*
-```
-
-正式发布：
-
-```bash
-python -m twine upload dist/*
-```
-
-建议使用 PyPI API token，不要把 token 写入项目文件或提交记录。
 
 ## 与其他工具的关系
 
