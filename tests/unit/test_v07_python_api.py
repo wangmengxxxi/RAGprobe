@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from uuid import uuid4
 
 from ragprobe import RAGProbe
+from ragprobe.core.llm_generation import LLMGeneratedCase
 from ragprobe.io.jsonl import load_results, load_testset
 
 
@@ -82,6 +84,29 @@ def test_python_api_requires_base_url_for_generic_provider() -> None:
         assert "base_url is required" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_python_api_accepts_direct_api_key_without_recording_secret(monkeypatch) -> None:
+    class FakeQwenClient:
+        api_keys: list[str] = []
+
+        def __init__(self, *, api_key: str, model: str, base_url: str) -> None:
+            self.api_keys.append(api_key)
+
+        def generate_case(self, target, candidates, config):
+            return LLMGeneratedCase(query="买方逾期付款超过30天时违约金如何计算？")
+
+    monkeypatch.setattr("ragprobe.api.QwenClient", FakeQwenClient)
+
+    probe = RAGProbe(llm="qwen", api_key="direct-key")
+    testset = probe.generate(
+        chunks=EXAMPLES / "chunks.jsonl",
+        num_cases=1,
+        use_cache=False,
+    )
+
+    assert FakeQwenClient.api_keys == ["direct-key"]
+    assert "direct-key" not in json.dumps(testset.metadata, ensure_ascii=False)
 
 
 def test_python_api_accepts_llm_validation_flag_for_default_generation() -> None:

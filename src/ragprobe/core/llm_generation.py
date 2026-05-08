@@ -52,6 +52,7 @@ class LLMGenerationConfig:
     hn_strategy: str = "hybrid"
     prompt_version: str = PROMPT_VERSION
     temperature: float = 0.2
+    domain_hint: str | None = None
 
 
 @dataclass
@@ -156,12 +157,13 @@ class OpenAICompatibleClient:
                         "You create retrieval test cases for RAG diagnostics. "
                         "Return JSON only. Do not generate final answers. "
                         "The query must be answerable by the expected chunk. "
-                        "Hard negatives must be similar but wrong for the query."
+                        "Hard negatives must be similar but wrong for the query. "
+                        "Infer the appropriate query language and style from the chunk content."
                     ),
                 },
                 {
                     "role": "user",
-                    "content": build_generation_prompt(target, candidates),
+                    "content": build_generation_prompt(target, candidates, config.domain_hint),
                 },
             ],
         }
@@ -381,7 +383,7 @@ def estimate_llm_generation(chunks: list[DocumentChunk], num_cases: int | None =
     }
 
 
-def build_generation_prompt(target: DocumentChunk, candidates: list[DocumentChunk]) -> str:
+def build_generation_prompt(target: DocumentChunk, candidates: list[DocumentChunk], domain_hint: str | None = None) -> str:
     payload = {
         "task": (
             "Generate one retrieval test case. Create a natural user query for the expected chunk. "
@@ -402,6 +404,8 @@ def build_generation_prompt(target: DocumentChunk, candidates: list[DocumentChun
         "expected_chunk": _chunk_prompt_payload(target),
         "candidate_chunks": [_chunk_prompt_payload(candidate) for candidate in candidates],
     }
+    if domain_hint:
+        payload["domain_context"] = domain_hint
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

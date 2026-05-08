@@ -219,10 +219,17 @@ python -m ragprobe add-case \
 hard negative，可以启用 LLM。RAGProbe 支持 Qwen 预设，也支持通用
 OpenAI-compatible chat completions API。
 
-环境变量默认读取 `AI_API_KEY`：
+环境变量默认读取 `AI_API_KEY`；如果你想使用 `DASHSCOPE_API_KEY`、
+`OPENAI_API_KEY` 或团队内部统一的环境变量名，可以通过 `--api-key-env` 指定：
 
 ```bash
 export AI_API_KEY="..."
+```
+
+Windows PowerShell：
+
+```powershell
+$env:AI_API_KEY="..."
 ```
 
 Qwen 示例：
@@ -250,6 +257,32 @@ python -m ragprobe generate \
   --api-key-env AI_API_KEY \
   --yes
 ```
+
+例如使用 DashScope 常见的 `DASHSCOPE_API_KEY`：
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/qwen-testset.json \
+  --llm qwen \
+  --model qwen-plus \
+  --api-key-env DASHSCOPE_API_KEY \
+  --yes
+```
+
+指定领域上下文（`--domain-hint`）可以让 LLM 生成更贴合领域的 query 风格：
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/medical/chunks.jsonl \
+  --output .tmp/medical-testset.json \
+  --llm qwen \
+  --model qwen-plus \
+  --domain-hint "医疗器械注册审评文档" \
+  --yes
+```
+
+不传 `--domain-hint` 时，LLM 会从 chunk 内容自动推断语言和风格。
 
 注意：
 
@@ -431,6 +464,51 @@ probe = RAGProbe()
 testset = probe.generate(
     chunks="examples/contract/chunks.jsonl",
     hard_negative_top_k=2,
+)
+
+# LLM 生成时可指定领域上下文
+testset = probe.generate(
+    chunks="examples/medical/chunks.jsonl",
+    llm="qwen",
+    domain_hint="医疗器械注册审评文档",
+)
+
+# AI 参数既可以在初始化时作为默认值传入
+probe = RAGProbe(
+    llm="qwen",
+    model="qwen-plus",
+    api_key_env="DASHSCOPE_API_KEY",
+)
+
+testset = probe.generate(
+    chunks="examples/contract/chunks.jsonl",
+    llm_validate=True,
+)
+
+# 本地快速试用时，也可以直接传 api_key；不要把真实 key 提交到仓库
+probe = RAGProbe(
+    llm="qwen",
+    model="qwen-plus",
+    api_key="sk-...",
+)
+
+# 也可以在单次调用时覆盖 AI 参数
+testset = probe.generate(
+    chunks="examples/contract/chunks.jsonl",
+    llm="openai-compatible",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    model="qwen-plus",
+    api_key="sk-...",
+    api_key_env="DASHSCOPE_API_KEY",
+    llm_validate=True,
+)
+
+audit = probe.audit(
+    testset=testset,
+    llm="qwen",
+    model="qwen-plus",
+    api_key_env="DASHSCOPE_API_KEY",
+    sample_size=5,
 )
 
 results = probe.run(

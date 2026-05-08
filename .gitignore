@@ -2,6 +2,7 @@ QUALIRA_DESIGN.md
 RAGPROBE_DESIGN.md
 .idea/
 docs
+docs/pypi_release_process.md
 __pycache__/
 *.py[cod]
 *.db

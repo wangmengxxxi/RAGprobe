@@ -157,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep cases rejected by generation-time validation.",
     )
+    generate.add_argument(
+        "--domain-hint",
+        required=False,
+        help="Domain context hint for LLM generation (e.g. 'medical device registration').",
+    )
 
     add_case_cmd = subparsers.add_parser("add-case", help="Append a manual bad case to a testset.")
     add_case_cmd.add_argument("--testset", required=True)
@@ -408,6 +413,7 @@ def _run_generate(args: argparse.Namespace) -> int:
             api_key_env=args.api_key_env,
             hard_negative_top_k=args.hard_negative_top_k,
             hn_strategy=args.hn_strategy,
+            domain_hint=getattr(args, "domain_hint", None),
         )
         judge_client = _build_judge_client(
             args,

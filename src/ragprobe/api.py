@@ -59,6 +59,7 @@ class RAGProbe:
         llm: str | None = None,
         model: str = DEFAULT_QWEN_MODEL,
         base_url: str | None = None,
+        api_key: str | None = None,
         api_key_env: str = "AI_API_KEY",
         cache_dir: str | Path = ".ragprobe_cache",
         use_cache: bool = True,
@@ -66,6 +67,7 @@ class RAGProbe:
         self.llm = llm
         self.model = model
         self.base_url = base_url
+        self.api_key = api_key
         self.api_key_env = api_key_env
         self.cache_dir = cache_dir
         self.use_cache = use_cache
@@ -88,6 +90,7 @@ class RAGProbe:
         llm: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        api_key: str | None = None,
         api_key_env: str | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool | None = None,
@@ -96,12 +99,15 @@ class RAGProbe:
         judge_llm: str | None = None,
         judge_model: str | None = None,
         judge_base_url: str | None = None,
+        judge_api_key: str | None = None,
         judge_api_key_env: str | None = None,
         keep_rejected: bool = False,
+        domain_hint: str | None = None,
     ) -> TestSet:
         chunk_items = load_chunks(chunks) if isinstance(chunks, (str, Path)) else chunks
         provider = llm if llm is not None else self.llm
         selected_model = model or self.model
+        selected_api_key = api_key if api_key is not None else self.api_key
         selected_api_key_env = api_key_env or self.api_key_env
         selected_cache_dir = self.cache_dir if cache_dir is None else cache_dir
         selected_use_cache = self.use_cache if use_cache is None else use_cache
@@ -109,8 +115,11 @@ class RAGProbe:
         if provider:
             if provider == "qwen":
                 selected_base_url = base_url or self.base_url or DEFAULT_QWEN_BASE_URL
-                client = QwenClient.from_env(
-                    env_var=selected_api_key_env,
+                client = QwenClient(
+                    api_key=_resolve_api_key(
+                        api_key=selected_api_key,
+                        api_key_env=selected_api_key_env,
+                    ),
                     model=selected_model,
                     base_url=selected_base_url,
                 )
@@ -118,8 +127,11 @@ class RAGProbe:
                 selected_base_url = base_url or self.base_url
                 if not selected_base_url:
                     raise ValueError("base_url is required for llm='openai-compatible'")
-                client = OpenAICompatibleClient.from_env(
-                    env_var=selected_api_key_env,
+                client = OpenAICompatibleClient(
+                    api_key=_resolve_api_key(
+                        api_key=selected_api_key,
+                        api_key_env=selected_api_key_env,
+                    ),
                     model=selected_model,
                     base_url=selected_base_url,
                 )
@@ -132,15 +144,20 @@ class RAGProbe:
                 api_key_env=selected_api_key_env,
                 hard_negative_top_k=hard_negative_top_k,
                 hn_strategy=hn_strategy,
+                domain_hint=domain_hint,
             )
             judge_client = None
             if llm_validate:
                 judge_provider = judge_llm or provider
                 judge_selected_model = judge_model or selected_model
+                judge_selected_key = judge_api_key if judge_api_key is not None else selected_api_key
                 judge_selected_env = judge_api_key_env or selected_api_key_env
                 if judge_provider == "qwen":
-                    judge_client = QwenClient.from_env(
-                        env_var=judge_selected_env,
+                    judge_client = QwenClient(
+                        api_key=_resolve_api_key(
+                            api_key=judge_selected_key,
+                            api_key_env=judge_selected_env,
+                        ),
                         model=judge_selected_model,
                         base_url=judge_base_url or DEFAULT_QWEN_BASE_URL,
                     )
@@ -150,8 +167,11 @@ class RAGProbe:
                         raise ValueError(
                             "judge_base_url is required for judge_llm='openai-compatible'"
                         )
-                    judge_client = OpenAICompatibleClient.from_env(
-                        env_var=judge_selected_env,
+                    judge_client = OpenAICompatibleClient(
+                        api_key=_resolve_api_key(
+                            api_key=judge_selected_key,
+                            api_key_env=judge_selected_env,
+                        ),
                         model=judge_selected_model,
                         base_url=judge_selected_base_url,
                     )
@@ -313,6 +333,7 @@ class RAGProbe:
         llm: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        api_key: str | None = None,
         api_key_env: str | None = None,
         sample_size: int | None = None,
         case_ids: list[str] | None = None,
@@ -325,6 +346,7 @@ class RAGProbe:
         if judge_client is None and not provider:
             raise ValueError("audit requires llm or judge_client")
         selected_model = model or self.model
+        selected_api_key = api_key if api_key is not None else self.api_key
         selected_api_key_env = api_key_env or self.api_key_env
         selected_cache_dir = self.cache_dir if cache_dir is None else cache_dir
         selected_use_cache = self.use_cache if use_cache is None else use_cache
@@ -332,8 +354,11 @@ class RAGProbe:
         if judge_client is None:
             if provider == "qwen":
                 selected_base_url = base_url or self.base_url or DEFAULT_QWEN_BASE_URL
-                judge_client = QwenClient.from_env(
-                    env_var=selected_api_key_env,
+                judge_client = QwenClient(
+                    api_key=_resolve_api_key(
+                        api_key=selected_api_key,
+                        api_key_env=selected_api_key_env,
+                    ),
                     model=selected_model,
                     base_url=selected_base_url,
                 )
@@ -341,8 +366,11 @@ class RAGProbe:
                 selected_base_url = base_url or self.base_url
                 if not selected_base_url:
                     raise ValueError("base_url is required for llm='openai-compatible'")
-                judge_client = OpenAICompatibleClient.from_env(
-                    env_var=selected_api_key_env,
+                judge_client = OpenAICompatibleClient(
+                    api_key=_resolve_api_key(
+                        api_key=selected_api_key,
+                        api_key_env=selected_api_key_env,
+                    ),
                     model=selected_model,
                     base_url=selected_base_url,
                 )
@@ -450,6 +478,7 @@ class RAGProbe:
         llm: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        api_key: str | None = None,
         api_key_env: str | None = None,
         num_cases: int | None = None,
         hard_negative_top_k: int = 1,
@@ -464,6 +493,7 @@ class RAGProbe:
                 llm=llm,
                 model=model,
                 base_url=base_url,
+                api_key=api_key,
                 api_key_env=api_key_env,
                 num_cases=num_cases,
                 hard_negative_top_k=hard_negative_top_k,
@@ -494,6 +524,14 @@ def _write_text(path: str | Path, text: str) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
+
+
+def _resolve_api_key(*, api_key: str | None, api_key_env: str) -> str:
+    if api_key is not None:
+        return api_key
+    import os
+
+    return os.environ.get(api_key_env, "")
 
 
 __all__ = ["RAGProbe", "LLMGenerationError"]
