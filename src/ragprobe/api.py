@@ -40,6 +40,7 @@ from ragprobe.core.runner import (
     run_retriever_command,
     run_retriever_script,
 )
+from ragprobe.core.schema import SCHEMA_RESULTS, schema_metadata
 from ragprobe.io.jsonl import load_results, load_testset, save_json
 
 
@@ -243,7 +244,7 @@ class RAGProbe:
             )
 
         if output:
-            save_json({"results": results}, output)
+            save_json({"metadata": schema_metadata(SCHEMA_RESULTS), "results": results}, output)
         return results
 
     def diagnose(

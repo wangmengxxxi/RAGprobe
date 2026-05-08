@@ -11,6 +11,7 @@ from typing import Any
 from ragprobe.core.generator import DocumentChunk
 from ragprobe.core.llm_generation import LLMGenerationConfig, LLMJudgeClient, LLMJudgeDecision
 from ragprobe.core.models import TestCase, TestSet
+from ragprobe.core.schema import SCHEMA_AUDIT_REPORT, schema_metadata
 from ragprobe.io.jsonl import load_testset, save_json
 
 AUDIT_PROMPT_VERSION = "ragprobe-v0.9-testset-audit-v1"
@@ -79,6 +80,7 @@ def audit_testset(
         findings=findings,
         summary=_summarize_findings(findings),
         metadata={
+            **schema_metadata(SCHEMA_AUDIT_REPORT),
             "source": "ragprobe-v0.9-testset-audit",
             "llm_provider": config.provider,
             "llm_model": config.model,

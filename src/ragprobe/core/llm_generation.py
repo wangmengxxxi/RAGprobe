@@ -21,6 +21,7 @@ from ragprobe.core.generator import (
     summarize_testset_quality,
 )
 from ragprobe.core.models import HardNegative, TestCase, TestSet
+from ragprobe.core.schema import SCHEMA_TESTSET, schema_metadata
 
 DEFAULT_QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 DEFAULT_QWEN_MODEL = "qwen-plus"
@@ -350,6 +351,7 @@ def generate_testset_from_chunks_llm(
         cases=cases,
         name=name,
         metadata={
+            **schema_metadata(SCHEMA_TESTSET),
             "source": "ragprobe-v0.7-llm-generator",
             "created_from": "chunks",
             "generator_mode": "llm",
@@ -391,7 +393,7 @@ def build_generation_prompt(target: DocumentChunk, candidates: list[DocumentChun
                 {
                     "chunk_id": "candidate chunk id",
                     "accepted": True,
-                    "confusion_type": "subject_confusion|condition_confusion|event_confusion|temporal_confusion|scope_confusion|semantic_only",
+                    "confusion_type": "string - the dimension of confusion between this chunk and the expected chunk, e.g. subject_confusion, brand_confusion, category_confusion, indication_confusion, temporal_confusion, or any label describing WHY they are confusable",
                     "confidence": 0.0,
                     "reason": "short explanation",
                 }

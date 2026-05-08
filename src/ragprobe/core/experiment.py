@@ -17,6 +17,7 @@ from ragprobe.core.runner import (
     run_retriever_command,
     run_retriever_script,
 )
+from ragprobe.core.schema import SCHEMA_EXPERIMENT_REPORT, SCHEMA_RESULTS, schema_metadata
 from ragprobe.io.jsonl import load_json, load_testset, save_json
 
 
@@ -110,7 +111,7 @@ def run_experiment(
         slug = _slug(spec.name)
         results_path = target_dir / f"{slug}.results.json"
         report_path = target_dir / f"{slug}.report.json"
-        save_json({"results": matched}, results_path)
+        save_json({"metadata": schema_metadata(SCHEMA_RESULTS), "results": matched}, results_path)
         save_json(report, report_path)
 
         run = ExperimentRetrieverRun(
@@ -146,6 +147,7 @@ def run_experiment(
         comparisons=comparisons,
         best_by_metric=_best_by_metric(runs),
         metadata={
+            **schema_metadata(SCHEMA_EXPERIMENT_REPORT),
             "testset_name": testset.name,
             "total_cases": len(testset.cases),
             "output_dir": str(target_dir),

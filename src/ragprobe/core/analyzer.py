@@ -16,6 +16,7 @@ from ragprobe.core.models import (
     TestSet,
 )
 from ragprobe.core.recommendations import build_recommendations
+from ragprobe.core.schema import SCHEMA_DIAGNOSTIC_REPORT, schema_metadata
 from ragprobe.core.validation import validate_results
 
 
@@ -31,7 +32,13 @@ class DiagnosticAnalyzer:
         total_cases = len(testset.cases)
 
         if total_cases == 0:
-            return DiagnosticReport(metadata={"testset_name": testset.name, "total_cases": 0})
+            return DiagnosticReport(
+                metadata={
+                    **schema_metadata(SCHEMA_DIAGNOSTIC_REPORT),
+                    "testset_name": testset.name,
+                    "total_cases": 0,
+                }
+            )
 
         hits = 0
         reciprocal_rank_sum = 0.0
@@ -110,6 +117,7 @@ class DiagnosticAnalyzer:
             metric_signals=_metric_signals(fpr=fpr, hit_rate=hit_rate, mrr=mrr),
             recommendations=build_recommendations(system_issues, failure_patterns),
             metadata={
+                **schema_metadata(SCHEMA_DIAGNOSTIC_REPORT),
                 "testset_name": testset.name,
                 "total_cases": total_cases,
                 "evaluated_cases": len(results_by_case),

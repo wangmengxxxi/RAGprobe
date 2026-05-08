@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ragprobe.core.models import ComparisonReport, DiagnosticReport, MetricDelta
+from ragprobe.core.schema import SCHEMA_COMPARISON_REPORT, schema_metadata
 
 
 def compare_reports(before: DiagnosticReport, after: DiagnosticReport) -> ComparisonReport:
@@ -21,6 +22,7 @@ def compare_reports(before: DiagnosticReport, after: DiagnosticReport) -> Compar
         improved_cases=sorted(before_failures - after_failures),
         regressed_cases=sorted(after_failures - before_failures),
         metadata={
+            **schema_metadata(SCHEMA_COMPARISON_REPORT),
             "before_total_cases": before.metadata.get("total_cases"),
             "after_total_cases": after.metadata.get("total_cases"),
         },

@@ -39,6 +39,7 @@ from ragprobe.core.runner import (
     run_retriever_command,
     run_retriever_script,
 )
+from ragprobe.core.schema import SCHEMA_RESULTS, schema_metadata
 from ragprobe.core.validation import validate_results_report, validate_testset
 from ragprobe.io.jsonl import load_report, load_results, load_testset, save_json
 from ragprobe.reports.markdown import (
@@ -358,7 +359,7 @@ def _run_run(args: argparse.Namespace) -> int:
             batch_size=config.batch_size if args.endpoint_config else args.batch_size,
             content_fallback_threshold=args.content_match_threshold,
         )
-    save_json({"results": results}, args.output)
+    save_json({"metadata": schema_metadata(SCHEMA_RESULTS), "results": results}, args.output)
     return 0
 
 
@@ -543,7 +544,7 @@ def _run_import_results(args: argparse.Namespace) -> int:
                 "retrieved": retrieved,
             }
         )
-    save_json({"results": results}, args.output)
+    save_json({"metadata": schema_metadata(SCHEMA_RESULTS), "results": results}, args.output)
     return 0
 
 

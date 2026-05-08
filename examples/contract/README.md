@@ -89,3 +89,36 @@ python -m ragprobe experiment \
   --config examples/contract/experiment.json \
   --output-dir .tmp/contract-experiment
 ```
+
+## Audit and Repair
+
+Audit a small sample with an LLM judge:
+
+```bash
+python -m ragprobe audit \
+  --testset examples/contract/testset.json \
+  --output .tmp/contract-audit.json \
+  --markdown .tmp/contract-audit.md \
+  --llm qwen \
+  --model qwen-plus \
+  --sample-size 1
+```
+
+Create a reviewable repair plan:
+
+```bash
+python -m ragprobe repair-plan \
+  --audit-report .tmp/contract-audit.json \
+  --output .tmp/contract-repair-plan.json \
+  --markdown .tmp/contract-repair-plan.md
+```
+
+Apply safe fixes to a new testset file:
+
+```bash
+python -m ragprobe apply-audit-fixes \
+  --testset examples/contract/testset.json \
+  --repair-plan .tmp/contract-repair-plan.json \
+  --output .tmp/contract-fixed-testset.json \
+  --report .tmp/contract-repair-apply.md
+```

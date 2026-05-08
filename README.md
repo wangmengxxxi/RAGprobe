@@ -230,6 +230,37 @@ For Qwen, the shorter preset also works:
 probe = RAGProbe(llm="qwen", model="qwen-plus")
 ```
 
+Multi-retriever experiment:
+
+```python
+report = probe.experiment(
+    config="examples/contract/experiment.json",
+    output_dir=".tmp/contract-experiment",
+)
+```
+
+Audit and repair:
+
+```python
+audit = probe.audit(
+    testset="examples/contract/testset.json",
+    output=".tmp/audit.json",
+    markdown=".tmp/audit.md",
+    sample_size=1,
+)
+
+plan = probe.repair_plan(
+    audit_report=audit,
+    output=".tmp/repair-plan.json",
+)
+
+result = probe.apply_audit_fixes(
+    testset="examples/contract/testset.json",
+    repair_plan=plan,
+    output=".tmp/fixed-testset.json",
+)
+```
+
 ## Retriever Integration
 
 ### Python
@@ -300,6 +331,63 @@ python -m ragprobe compare \
 
 The comparison reports metric deltas and improved/regressed cases.
 
+## Multi-Retriever Experiments
+
+Run several named retrievers from one JSON config:
+
+```bash
+python -m ragprobe experiment \
+  --config examples/contract/experiment.json \
+  --output-dir .tmp/contract-experiment
+```
+
+This writes per-retriever results and reports plus:
+
+```text
+.tmp/contract-experiment/experiment_report.json
+.tmp/contract-experiment/experiment_report.md
+```
+
+## Audit and Repair Testsets
+
+The core diagnostic commands stay deterministic and zero-LLM. Testset audit is
+an optional LLM workflow for checking whether generated or manually maintained
+cases are trustworthy.
+
+Audit a small sample with Qwen:
+
+```bash
+python -m ragprobe audit \
+  --testset examples/contract/testset.json \
+  --output .tmp/audit.json \
+  --markdown .tmp/audit.md \
+  --llm qwen \
+  --model qwen-plus \
+  --sample-size 1
+```
+
+Build a reviewable repair plan:
+
+```bash
+python -m ragprobe repair-plan \
+  --audit-report .tmp/audit.json \
+  --output .tmp/repair-plan.json \
+  --markdown .tmp/repair-plan.md
+```
+
+Apply safe fixes to a new testset file:
+
+```bash
+python -m ragprobe apply-audit-fixes \
+  --testset examples/contract/testset.json \
+  --repair-plan .tmp/repair-plan.json \
+  --output .tmp/fixed-testset.json \
+  --report .tmp/repair-apply.md
+```
+
+`reject_case` actions are skipped by default. To remove failed cases from the
+output testset, pass `--allow-reject-cases` explicitly.
+
 ## CI Usage
 
 Use `check` to fail a build when retrieval quality crosses thresholds:
@@ -318,6 +406,17 @@ copyable GitHub Actions example.
 
 ## File Formats
 
+RAGProbe v1.0 writes stable schema metadata into JSON artifacts:
+
+```json
+{
+  "metadata": {
+    "schema_version": "ragprobe.testset.v1",
+    "ragprobe_version": "1.0.0"
+  }
+}
+```
+
 The committed contract example shows all core formats:
 
 - chunks JSONL: [examples/contract/chunks.jsonl](examples/contract/chunks.jsonl)
@@ -331,7 +430,8 @@ The committed contract example shows all core formats:
 
 ```bash
 python -m pytest
-python -m ruff check .
+python -m ruff check src tests
+python -m ragprobe --version
 python -m ragprobe demo
 python -m ragprobe generate \
   --chunks examples/contract/chunks.jsonl \
@@ -349,11 +449,9 @@ python -m ragprobe validate --testset .tmp/generated-testset.json
 
 ## Roadmap
 
-- v0.6: CI, examples, schema docs, README, release polish.
-- v0.7: optional OpenAI-compatible testset generation and hard-negative judgment.
-- v0.8: multi-retriever experiments.
-- v0.9: LLM judge and testset audit.
-- v1.0: stable CLI and JSON schema.
+RAGProbe v1.0 freezes the core CLI and JSON schema for early production use.
+Future v1.x work can improve embedding baselines, experiment parallelism, and
+release automation without changing the core artifact contracts.
 
 ## License
 

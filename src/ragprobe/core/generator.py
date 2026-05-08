@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ragprobe.core.models import HardNegative, TestCase, TestSet
+from ragprobe.core.schema import SCHEMA_TESTSET, schema_metadata
 
 MIN_QUERY_LENGTH = 4
 WEAK_HARD_NEGATIVE_THRESHOLD = 0.05
@@ -103,6 +104,7 @@ def generate_testset_from_chunks(
         cases=cases,
         name=name,
         metadata={
+            **schema_metadata(SCHEMA_TESTSET),
             "source": "ragprobe-v0.5-quality-generator",
             "created_from": "chunks",
             "hard_negative_strategy": hn_strategy,
@@ -415,27 +417,21 @@ def infer_confusion_type(target: DocumentChunk, candidate: DocumentChunk) -> str
     target_meta = target.metadata
     candidate_meta = candidate.metadata
 
-    for key in ("subject", "party", "actor"):
+    skip_keys = {"chunk_id", "id", "content", "source", "source_document"}
+    all_keys = set(target_meta.keys()) | set(candidate_meta.keys())
+
+    for key in sorted(all_keys - skip_keys):
         if _differs(target_meta.get(key), candidate_meta.get(key)):
-            return "subject_confusion"
-    for key in ("condition", "event", "trigger"):
-        if _differs(target_meta.get(key), candidate_meta.get(key)):
-            return "event_confusion" if key == "event" else "condition_confusion"
-    for key in ("date", "year", "version"):
-        if _differs(target_meta.get(key), candidate_meta.get(key)):
-            return "temporal_confusion"
-    for key in ("scope", "section", "document_type"):
-        if _differs(target_meta.get(key), candidate_meta.get(key)):
-            return "scope_confusion"
+            return f"{key}_confusion"
 
     if _numbers(target.content) != _numbers(candidate.content):
-        return "condition_confusion"
+        return "numeric_confusion"
     if (
         target.source_document
         and candidate.source_document
         and target.source_document != candidate.source_document
     ):
-        return "scope_confusion"
+        return "source_confusion"
     return "semantic_only"
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ragprobe.core.models import TestSet
+from ragprobe.core.schema import SCHEMA_REPAIR_PLAN, SCHEMA_TESTSET, schema_metadata
 from ragprobe.io.jsonl import load_json, load_testset, save_json
 
 REPAIR_PLAN_VERSION = "ragprobe-v0.10-audit-repair-plan-v1"
@@ -99,6 +100,7 @@ def build_repair_plan(audit_report: Any, *, source: str = "") -> RepairPlan:
         actions=deduped,
         summary=_summarize_actions(deduped),
         metadata={
+            **schema_metadata(SCHEMA_REPAIR_PLAN),
             "source": "ragprobe-v0.10-audit-repair-plan",
             "repair_plan_version": REPAIR_PLAN_VERSION,
             "source_audit": source or _get(payload, "metadata", {}).get("source", ""),
@@ -150,6 +152,7 @@ def apply_repair_plan(
         updated.cases = [case for case in updated.cases if case.id not in rejected_case_ids]
 
     updated.metadata.setdefault("repair_history", [])
+    updated.metadata.update(schema_metadata(SCHEMA_TESTSET))
     if isinstance(updated.metadata["repair_history"], list):
         updated.metadata["repair_history"].append(
             {
