@@ -31,6 +31,7 @@ from ragprobe.core.llm_generation import (
     generate_testset_from_chunks_llm,
 )
 from ragprobe.core.matching import apply_content_fallback
+from ragprobe.core.repair import apply_repair_plan, build_repair_plan
 from ragprobe.core.runner import (
     RetrieverLoadError,
     load_endpoint_config,
@@ -45,6 +46,8 @@ from ragprobe.reports.markdown import (
     render_compare_markdown,
     render_experiment_markdown,
     render_markdown,
+    render_repair_apply_markdown,
+    render_repair_plan_markdown,
 )
 from ragprobe.reports.terminal import render_compare_terminal, render_terminal
 
@@ -228,6 +231,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Return exit code 1 if any audited case is suspicious or failed.",
     )
 
+    repair_plan = subparsers.add_parser(
+        "repair-plan",
+        help="Build a reviewable repair plan from an audit report.",
+    )
+    repair_plan.add_argument("--audit-report", required=True)
+    repair_plan.add_argument("--output", required=True)
+    repair_plan.add_argument("--markdown", required=False)
+
+    apply_fixes = subparsers.add_parser(
+        "apply-audit-fixes",
+        help="Apply an audit repair plan to a copy of a testset.",
+    )
+    apply_fixes.add_argument("--testset", required=True)
+    apply_fixes.add_argument("--repair-plan", required=True)
+    apply_fixes.add_argument("--output", required=True)
+    apply_fixes.add_argument("--report", required=False)
+    apply_fixes.add_argument(
+        "--allow-reject-cases",
+        action="store_true",
+        help="Allow reject_case actions to remove cases from the output testset.",
+    )
+
     check = subparsers.add_parser(
         "check",
         help="Fail when diagnostic metrics cross thresholds.",
@@ -277,6 +302,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_experiment(args)
         if args.command == "audit":
             return _run_audit(args)
+        if args.command == "repair-plan":
+            return _run_repair_plan(args)
+        if args.command == "apply-audit-fixes":
+            return _run_apply_audit_fixes(args)
         if args.command == "check":
             return _run_check(args)
     except (
@@ -624,6 +653,38 @@ def _run_audit(args: argparse.Namespace) -> int:
     )
     if args.fail_on_suspicious and report.summary.get("requires_review", 0):
         return 1
+    return 0
+
+
+def _run_repair_plan(args: argparse.Namespace) -> int:
+    plan = build_repair_plan(args.audit_report, source=args.audit_report)
+    save_json(plan, args.output)
+    if args.markdown:
+        _emit_text(render_repair_plan_markdown(plan), args.markdown)
+    print(
+        "repair plan: "
+        f"actions={plan.summary.get('total_actions', 0)}, "
+        f"applicable={plan.summary.get('applicable_actions', 0)}, "
+        f"review_only={plan.summary.get('review_only_actions', 0)}"
+    )
+    return 0
+
+
+def _run_apply_audit_fixes(args: argparse.Namespace) -> int:
+    result = apply_repair_plan(
+        args.testset,
+        args.repair_plan,
+        allow_reject_cases=args.allow_reject_cases,
+    )
+    save_json(result.testset, args.output)
+    if args.report:
+        _emit_text(render_repair_apply_markdown(result), args.report)
+    print(
+        "applied audit fixes: "
+        f"applied={result.summary.get('applied_actions', 0)}, "
+        f"skipped={result.summary.get('skipped_actions', 0)}, "
+        f"remaining_cases={result.summary.get('remaining_cases', 0)}"
+    )
     return 0
 
 

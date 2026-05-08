@@ -5,6 +5,7 @@ from __future__ import annotations
 from ragprobe.core.audit import AuditReport
 from ragprobe.core.experiment import ExperimentReport
 from ragprobe.core.models import ComparisonReport, DiagnosticReport
+from ragprobe.core.repair import RepairApplyResult, RepairPlan
 
 
 def render_markdown(report: DiagnosticReport) -> str:
@@ -261,3 +262,70 @@ def render_audit_markdown(report: AuditReport) -> str:
 
 def _format_confidence(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
+
+
+def render_repair_plan_markdown(plan: RepairPlan) -> str:
+    lines = [
+        "# RAGProbe Audit Repair Plan",
+        "",
+        "## Summary",
+        "",
+        f"- Total actions: {plan.summary.get('total_actions', 0)}",
+        f"- Applicable actions: {plan.summary.get('applicable_actions', 0)}",
+        f"- Review-only actions: {plan.summary.get('review_only_actions', 0)}",
+        "",
+        "## Action Counts",
+        "",
+    ]
+    action_counts = plan.summary.get("action_counts", {})
+    if action_counts:
+        for action, count in action_counts.items():
+            lines.append(f"- {action}: {count}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Actions", ""])
+    if not plan.actions:
+        lines.append("- none")
+    for index, action in enumerate(plan.actions, start=1):
+        target = f" `{action.chunk_id}`" if action.chunk_id else ""
+        lines.append(f"{index}. {action.action} `{action.case_id}`{target}")
+        lines.append(f"   - Applies: {action.applies}")
+        if action.source_warning:
+            lines.append(f"   - Source warning: {action.source_warning}")
+        if action.reason:
+            lines.append(f"   - Reason: {action.reason}")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_repair_apply_markdown(result: RepairApplyResult) -> str:
+    lines = [
+        "# RAGProbe Audit Repair Apply Report",
+        "",
+        "## Summary",
+        "",
+        f"- Applied actions: {result.summary.get('applied_actions', 0)}",
+        f"- Skipped actions: {result.summary.get('skipped_actions', 0)}",
+        f"- Remaining cases: {result.summary.get('remaining_cases', 0)}",
+        f"- Rejected cases: {result.summary.get('rejected_cases', 0)}",
+        "",
+        "## Applied Actions",
+        "",
+    ]
+    if result.applied_actions:
+        for action in result.applied_actions:
+            target = f" `{action.chunk_id}`" if action.chunk_id else ""
+            lines.append(f"- {action.action} `{action.case_id}`{target}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Skipped Actions", ""])
+    if result.skipped_actions:
+        for action in result.skipped_actions:
+            target = f" `{action.chunk_id}`" if action.chunk_id else ""
+            lines.append(f"- {action.action} `{action.case_id}`{target}")
+    else:
+        lines.append("- none")
+
+    return "\n".join(lines).rstrip() + "\n"

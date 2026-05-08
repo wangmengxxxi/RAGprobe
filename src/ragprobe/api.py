@@ -26,6 +26,13 @@ from ragprobe.core.llm_generation import (
 )
 from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.models import ComparisonReport, DiagnosticReport, RetrievalResult, TestSet
+from ragprobe.core.repair import (
+    RepairApplyResult,
+    RepairPlan,
+    apply_repair_plan,
+    build_repair_plan,
+    save_repair_plan,
+)
 from ragprobe.core.runner import (
     load_endpoint_config,
     run_endpoint,
@@ -355,6 +362,49 @@ class RAGProbe:
 
             _write_text(markdown, render_audit_markdown(report))
         return report
+
+    def repair_plan(
+        self,
+        *,
+        audit_report,
+        output: str | Path | None = None,
+        markdown: str | Path | None = None,
+    ) -> RepairPlan:
+        """Build a reviewable repair plan from an audit report."""
+        plan = build_repair_plan(
+            audit_report,
+            source=str(audit_report) if isinstance(audit_report, (str, Path)) else "",
+        )
+        if output:
+            save_repair_plan(plan, output)
+        if markdown:
+            from ragprobe.reports.markdown import render_repair_plan_markdown
+
+            _write_text(markdown, render_repair_plan_markdown(plan))
+        return plan
+
+    def apply_audit_fixes(
+        self,
+        *,
+        testset: TestSet | str | Path,
+        repair_plan: RepairPlan | dict | str | Path,
+        output: str | Path | None = None,
+        report: str | Path | None = None,
+        allow_reject_cases: bool = False,
+    ) -> RepairApplyResult:
+        """Apply an audit repair plan to a copy of a testset."""
+        result = apply_repair_plan(
+            testset,
+            repair_plan,
+            allow_reject_cases=allow_reject_cases,
+        )
+        if output:
+            save_json(result.testset, output)
+        if report:
+            from ragprobe.reports.markdown import render_repair_apply_markdown
+
+            _write_text(report, render_repair_apply_markdown(result))
+        return result
 
     def check(
         self,

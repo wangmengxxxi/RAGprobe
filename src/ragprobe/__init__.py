@@ -18,14 +18,17 @@ from ragprobe.core.models import (
     TestCase,
     TestSet,
 )
+from ragprobe.core.repair import RepairApplyResult, RepairPlan
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "__version__",
     "RAGProbe",
     "AuditReport",
     "ExperimentReport",
+    "RepairApplyResult",
+    "RepairPlan",
     "DiagnosticReport",
     "FailureCase",
     "FailurePattern",
