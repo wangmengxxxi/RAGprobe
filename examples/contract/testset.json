@@ -1,0 +1,58 @@
+{
+  "name": "contract-demo",
+  "metadata": {
+    "chunks": {
+      "buyer_payment_30": "买方逾期付款超过30天，应按未付款金额支付违约金。",
+      "seller_delivery_15": "卖方延期交货超过15日，应承担延期交货违约责任。",
+      "buyer_payment_notice": "买方收到付款通知后，应在10日内完成付款确认。",
+      "seller_invoice_notice": "卖方开具发票后，应在3日内通知买方付款。"
+    }
+  },
+  "cases": [
+    {
+      "id": "contract_case_1",
+      "query": "买方逾期付款超过30天的违约金是多少？",
+      "expected_chunks": ["buyer_payment_30"],
+      "hard_negatives": [
+        {
+          "chunk_id": "seller_delivery_15",
+          "confusion_type": "subject_confusion",
+          "similarity_to_correct": 0.94,
+          "reason": "同为违约责任条款，但主体和事件不同。"
+        }
+      ],
+      "difficulty": "hard",
+      "source_document": "contract.md"
+    },
+    {
+      "id": "contract_case_2",
+      "query": "卖方延期交货超过15日要承担什么责任？",
+      "expected_chunks": ["seller_delivery_15"],
+      "hard_negatives": [
+        {
+          "chunk_id": "buyer_payment_30",
+          "confusion_type": "event_confusion",
+          "similarity_to_correct": 0.88,
+          "reason": "同为违约责任条款，但付款和交货事件不同。"
+        }
+      ],
+      "difficulty": "medium",
+      "source_document": "contract.md"
+    },
+    {
+      "id": "contract_case_3",
+      "query": "买方收到付款通知后多久需要确认付款？",
+      "expected_chunks": ["buyer_payment_notice"],
+      "hard_negatives": [
+        {
+          "chunk_id": "seller_invoice_notice",
+          "confusion_type": "condition_confusion",
+          "similarity_to_correct": 0.81,
+          "reason": "都涉及通知和付款，但义务主体和时间条件不同。"
+        }
+      ],
+      "difficulty": "medium",
+      "source_document": "contract.md"
+    }
+  ]
+}

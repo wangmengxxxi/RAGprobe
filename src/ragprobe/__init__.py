@@ -16,7 +16,10 @@ from ragprobe.core.models import (
     TestSet,
 )
 
+__version__ = "0.6.0"
+
 __all__ = [
+    "__version__",
     "DiagnosticReport",
     "FailureCase",
     "FailurePattern",

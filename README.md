@@ -2,124 +2,242 @@
 
 > Diagnose your RAG before your users do.
 
-## 问题
+RAGProbe is a retrieval diagnostics and regression-testing CLI for RAG systems.
+It focuses on the retrieval layer: can your system find the right chunks, avoid
+similar-but-wrong chunks, and keep that behavior from regressing in CI?
 
-你的合同 RAG 系统，用户问：
+## Why It Exists
 
-```
-"买方逾期付款超过30天的违约金是多少？"
-```
+Your contract RAG system receives this query:
 
-系统返回了：
-
-```
-"卖方延期交货超过15日，应按合同总额的0.03%/日支付违约金。"
+```text
+买方逾期付款超过30天的违约金是多少？
 ```
 
-主体错了（卖方 ≠ 买方），事件错了（交货 ≠ 付款），条件也错了（15日 ≠ 30天）。但它们的 embedding 相似度是 0.94。
+But the retriever returns this chunk near the top:
 
-用户没仔细看，直接用了。
-
-**RAGProbe 能在上线前帮你发现这类问题。**
-
-## 它做什么
-
-```
-你的文档 → 自动生成测试集（含 hard negative）
-         → 跑你的 retrieval 系统
-         → 告诉你哪类问题会出错、为什么、怎么改
+```text
+卖方延期交货超过15日，应承担延期交货违约责任。
 ```
 
-不只给一个分数。给你一份诊断报告：
+It looks similar, but the subject, event, and condition are wrong. RAGProbe is
+designed to catch this retrieval failure before users build an answer on it.
 
+## What It Measures
+
+RAGProbe runs a hard-negative testset against your retriever and reports:
+
+- retrieval quality: hit rate, MRR, precision@k
+- hard-negative resistance: FPR and confusion distribution
+- failure patterns: misses, ranking weakness, hard negatives above correct chunks
+- system issue signals and evidence-backed recommendations
+- CI-friendly threshold checks
+
+The core diagnostic loop does not require an LLM key.
+
+```text
+testset -> run retriever -> diagnose -> compare/check -> improve testset quality
 ```
-⚠️  Hard Negative Resistance
-  FPR: 0.35 (35% of hard negatives incorrectly retrieved)
-  
-  Confusion Type Distribution:
-    subject_confusion:    40% ████████░░
-    condition_confusion:  25% █████░░░░░
-    event_confusion:      20% ████░░░░░░
 
-💡 Recommendations
-  1. Add cross-encoder reranker (expected FPR reduction: 50%+)
-  2. Reduce chunk size (20% of misses due to oversized chunks)
+## Install
+
+From a local checkout:
+
+```bash
+python -m pip install -e ".[dev]"
 ```
 
-## Quick Start
+After package release, regular installation will be:
 
 ```bash
 pip install ragprobe
-
-# 1. 从你的文档生成测试集
-ragprobe generate --docs ./contracts/ --output testset.json
-
-# 2. 跑你的 retriever
-ragprobe run --testset testset.json --retriever my_retriever.py --output results.json
-
-# 3. 看诊断报告
-ragprobe diagnose --results results.json
 ```
 
-或者用 Python：
+## Five-Minute Start
+
+Run the bundled offline demo:
+
+```bash
+python -m ragprobe demo
+```
+
+Run the contract example against a Python retriever:
+
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --retriever examples/contract/python_retriever.py \
+  --output .tmp/contract-results.json
+
+python -m ragprobe diagnose \
+  --testset examples/contract/testset.json \
+  --results .tmp/contract-results.json
+```
+
+Write a Markdown report:
+
+```bash
+python -m ragprobe diagnose \
+  --testset examples/contract/testset.json \
+  --results .tmp/contract-results.json \
+  --format markdown \
+  --output .tmp/contract-report.md
+```
+
+## Generate a Testset From Chunks
+
+RAGProbe can create a deterministic starter testset from your existing chunks.
+This is intended as a cold-start scaffold and CI baseline.
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/generated-testset.json \
+  --hard-negative-top-k 2 \
+  --hn-strategy hybrid \
+  --quality-report .tmp/generated-quality.md
+
+python -m ragprobe validate --testset .tmp/generated-testset.json
+```
+
+Generated cases include quality metadata and warnings so you can decide whether
+they are ready to become regression tests. Add real production bad cases over
+time:
+
+```bash
+python -m ragprobe add-case \
+  --testset .tmp/generated-testset.json \
+  --output .tmp/generated-testset-with-bad-case.json \
+  --query "买方逾期付款的责任是什么？" \
+  --expected-chunk buyer_payment_30 \
+  --hard-negative seller_delivery_15 \
+  --confusion-type subject_confusion
+```
+
+## Retriever Integration
+
+### Python
+
+Provide a file exposing `retrieve(query, top_k)`:
 
 ```python
-from ragprobe import RAGProbe
-
-probe = RAGProbe(llm="gpt-4o-mini", embedding="bge-large-zh")
-
-# 生成测试集
-testset = probe.generate_testset(documents=["contract.pdf"])
-
-# 跑你的 retriever
-results = probe.run(testset=testset, retriever=my_retriever)
-
-# 诊断
-report = probe.diagnose(results)
-report.print()
+def retrieve(query: str, top_k: int = 10) -> list[dict]:
+    return [
+        {
+            "chunk_id": "buyer_payment_30",
+            "content": "买方逾期付款超过30天，应按未付款金额支付违约金。",
+            "score": 0.95,
+            "metadata": {},
+        }
+    ][:top_k]
 ```
 
-## Retriever 接口
+Run it:
 
-你只需要提供一个函数：
-
-```python
-def my_retriever(query: str, top_k: int = 10) -> list[dict]:
-    """
-    返回格式：[{"content": "...", "score": 0.85, "metadata": {...}}, ...]
-    """
-    # 你的检索逻辑
-    results = your_vector_db.search(query, top_k=top_k)
-    return results
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --retriever examples/contract/python_retriever.py \
+  --output .tmp/python-results.json
 ```
 
-也支持离线评估（直接提供 JSON 格式的检索结果）。
+### Node.js or Any JSONL Process
 
-## 与 RAGAS 的区别
+RAGProbe can talk to any subprocess over stdin/stdout JSONL:
 
-| | RAGAS | RAGProbe |
-|---|---|---|
-| 核心能力 | 通用 RAG / LLM 应用评估 | 检索失败归因 + 诊断建议 |
-| 关注重点 | faithfulness、relevancy、context metrics | hard negative、混淆类型、检索失败模式 |
-| 测试集 | 支持 synthetic testset | 专门生成/挖掘 hard negative testset |
-| 输出 | 指标分数 | worst cases、confusion distribution、改进建议 |
-| LLM 使用 | 常用于评分 | 尽量让 retrieval 指标可复现，LLM 主要用于生成/归因 |
-| 中文场景 | 通用支持 | 优先提供中文 hard negative 模板和示例 |
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --retriever-cmd "node examples/contract/node_jsonl_retriever.js" \
+  --output .tmp/node-results.json
+```
 
-## 它不做什么
+### HTTP Endpoint
 
-- 不评估 LLM 生成质量（只管 retrieval）
-- 不是 RAG 框架（不提供检索能力）
-- 不是监控平台（不做实时告警）
+Start the example server:
 
-## 适用场景
+```bash
+python examples/contract/http_retriever_server.py
+```
 
-你的文档里存在大量 "看起来相似但不该被混淆" 的内容：
+Run against it:
 
-- 合同条款（买方 vs 卖方、不同违约条件）
-- 医疗指南（成人 vs 儿童剂量、禁忌 vs 适应症）
-- 金融产品（不同产品的相似条款）
-- 技术手册（不同型号的相似参数）
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --endpoint http://127.0.0.1:8008/search \
+  --endpoint-config examples/contract/endpoint_config.json \
+  --output .tmp/http-results.json
+```
+
+## Compare Retriever Changes
+
+Use the same testset before and after changing chunking, embedding, reranking, or
+filters:
+
+```bash
+python -m ragprobe compare \
+  --testset examples/contract/testset.json \
+  --before .tmp/contract-weak-results.json \
+  --after .tmp/contract-results.json
+```
+
+The comparison reports metric deltas and improved/regressed cases.
+
+## CI Usage
+
+Use `check` to fail a build when retrieval quality crosses thresholds:
+
+```bash
+python -m ragprobe check \
+  --testset examples/contract/testset.json \
+  --results .tmp/contract-results.json \
+  --min-hit-rate 0.7 \
+  --min-mrr 0.5 \
+  --max-fpr 0.3
+```
+
+See [.github/workflows/ragprobe.yml](.github/workflows/ragprobe.yml) for a
+copyable GitHub Actions example.
+
+## File Formats
+
+The committed contract example shows all core formats:
+
+- chunks JSONL: [examples/contract/chunks.jsonl](examples/contract/chunks.jsonl)
+- testset JSON: [examples/contract/testset.json](examples/contract/testset.json)
+- Python retriever: [examples/contract/python_retriever.py](examples/contract/python_retriever.py)
+- JSONL subprocess retriever: [examples/contract/node_jsonl_retriever.js](examples/contract/node_jsonl_retriever.js)
+- HTTP endpoint retriever: [examples/contract/http_retriever_server.py](examples/contract/http_retriever_server.py)
+- endpoint config: [examples/contract/endpoint_config.json](examples/contract/endpoint_config.json)
+
+## Local Verification
+
+```bash
+python -m pytest
+python -m ruff check .
+python -m ragprobe demo
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/generated-testset.json \
+  --quality-report .tmp/generated-quality.md
+python -m ragprobe validate --testset .tmp/generated-testset.json
+```
+
+## What RAGProbe Does Not Do
+
+- It does not evaluate final LLM answer quality.
+- It is not a RAG framework or vector database.
+- It is not a real-time monitoring dashboard.
+- It does not require LLM scoring for the core diagnostic and CI loop.
+
+## Roadmap
+
+- v0.6: CI, examples, schema docs, README, release polish.
+- v0.7: optional LLM-assisted testset generation and optional embedding support.
+- v0.8: multi-retriever experiments.
+- v0.9: LLM judge and testset audit.
+- v1.0: stable CLI and JSON schema.
 
 ## License
 

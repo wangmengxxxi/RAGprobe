@@ -1,0 +1,4 @@
+{"chunk_id":"buyer_payment_30","content":"买方逾期付款超过30天，应按未付款金额支付违约金。","metadata":{"subject":"buyer","event":"late_payment","topic":"买方逾期付款","tags":["contract"]},"source_document":"contract.md"}
+{"chunk_id":"seller_delivery_15","content":"卖方延期交货超过15日，应承担延期交货违约责任。","metadata":{"subject":"seller","event":"late_delivery","topic":"卖方延期交货","tags":["contract"]},"source_document":"contract.md"}
+{"chunk_id":"buyer_payment_notice","content":"买方收到付款通知后，应在10日内完成付款确认。","metadata":{"subject":"buyer","event":"payment_notice","topic":"买方付款通知","tags":["contract"]},"source_document":"contract.md"}
+{"chunk_id":"seller_invoice_notice","content":"卖方开具发票后，应在3日内通知买方付款。","metadata":{"subject":"seller","event":"invoice_notice","topic":"卖方发票通知","tags":["contract"]},"source_document":"contract.md"}

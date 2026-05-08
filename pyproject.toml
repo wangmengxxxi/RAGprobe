@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ragprobe"
-version = "0.1.0"
+version = "0.6.0"
 description = "Retrieval diagnostics for RAG systems."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["rag", "retrieval", "evaluation", "diagnostics"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -24,6 +24,11 @@ classifiers = [
 dependencies = [
   "rich>=13.7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/wangmengxxxi/RAGprobe"
+Documentation = "https://github.com/wangmengxxxi/RAGprobe#readme"
+Issues = "https://github.com/wangmengxxxi/RAGprobe/issues"
 
 [project.optional-dependencies]
 dev = [

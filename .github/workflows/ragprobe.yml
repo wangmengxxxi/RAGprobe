@@ -1,0 +1,35 @@
+name: RAGProbe
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  retrieval-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install RAGProbe
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run retriever
+        run: |
+          python -m ragprobe run \
+            --testset examples/contract/testset.json \
+            --retriever examples/contract/python_retriever.py \
+            --output .tmp/ragprobe-results.json
+
+      - name: Check retrieval thresholds
+        run: |
+          python -m ragprobe check \
+            --testset examples/contract/testset.json \
+            --results .tmp/ragprobe-results.json \
+            --min-hit-rate 0.7 \
+            --min-mrr 0.5 \
+            --max-fpr 0.3

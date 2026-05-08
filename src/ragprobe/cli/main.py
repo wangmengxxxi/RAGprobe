@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from ragprobe import __version__
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.checks import check_thresholds
 from ragprobe.core.compare import compare_reports
@@ -23,6 +24,7 @@ from ragprobe.core.runner import (
     run_endpoint,
     run_retriever_command,
     run_retriever_script,
+    RetrieverLoadError,
 )
 from ragprobe.core.validation import validate_results_report, validate_testset
 from ragprobe.io.jsonl import load_report, load_results, load_testset, save_json
@@ -34,14 +36,28 @@ DEMO_DIR = PACKAGE_ROOT / "data" / "contract"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ragprobe")
+    parser = argparse.ArgumentParser(
+        prog="ragprobe",
+        description="Retrieval diagnostics and regression checks for RAG systems.",
+    )
+    parser.add_argument("--version", action="version", version=f"ragprobe {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    demo = subparsers.add_parser("demo", help="Run the bundled offline demo.")
+    demo = subparsers.add_parser(
+        "demo",
+        help="Run the bundled offline demo.",
+        description="Run a bundled contract retrieval demo and print a diagnostic report.",
+    )
     demo.add_argument("--output", required=False, help="Optional report output path.")
     demo.add_argument("--format", choices=["terminal", "markdown", "json"], default="terminal")
 
-    run = subparsers.add_parser("run", help="Run a retriever against a testset.")
+    run = subparsers.add_parser(
+        "run",
+        help="Run a retriever against a testset.",
+        description=(
+            "Run one of the supported retriever integrations against every query in a testset."
+        ),
+    )
     run.add_argument("--testset", required=True)
     source = run.add_mutually_exclusive_group(required=True)
     source.add_argument(
@@ -62,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--batch-size", type=int, default=1)
     run.add_argument("--content-match-threshold", type=float, default=0.9)
 
-    generate = subparsers.add_parser("generate", help="Generate a lightweight testset from chunks.")
+    generate = subparsers.add_parser(
+        "generate",
+        help="Generate a lightweight testset from chunks.",
+        description="Create a deterministic starter testset from chunks JSONL/JSON.",
+    )
     generate.add_argument("--chunks", required=True)
     generate.add_argument("--output", required=True)
     generate.add_argument("--num-cases", type=int, required=False)
@@ -124,7 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--format", choices=["terminal", "markdown", "json"], default="terminal")
     compare.add_argument("--content-match-threshold", type=float, default=0.9)
 
-    check = subparsers.add_parser("check", help="Fail when diagnostic metrics cross thresholds.")
+    check = subparsers.add_parser(
+        "check",
+        help="Fail when diagnostic metrics cross thresholds.",
+        description="Return exit code 1 when report metrics violate CI thresholds.",
+    )
     check.add_argument("--report", required=False)
     check.add_argument("--results", required=False)
     check.add_argument("--testset", required=False)
@@ -144,28 +168,32 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if args.command == "demo":
-        return _run_demo(args)
-    if args.command == "run":
-        return _run_run(args)
-    if args.command == "generate":
-        return _run_generate(args)
-    if args.command == "add-case":
-        return _run_add_case(args)
-    if args.command == "sample":
-        return _run_sample(args)
-    if args.command == "validate":
-        return _run_validate(args)
-    if args.command == "export-queries":
-        return _run_export_queries(args)
-    if args.command == "import-results":
-        return _run_import_results(args)
-    if args.command == "diagnose":
-        return _run_diagnose(args)
-    if args.command == "compare":
-        return _run_compare(args)
-    if args.command == "check":
-        return _run_check(args)
+    try:
+        if args.command == "demo":
+            return _run_demo(args)
+        if args.command == "run":
+            return _run_run(args)
+        if args.command == "generate":
+            return _run_generate(args)
+        if args.command == "add-case":
+            return _run_add_case(args)
+        if args.command == "sample":
+            return _run_sample(args)
+        if args.command == "validate":
+            return _run_validate(args)
+        if args.command == "export-queries":
+            return _run_export_queries(args)
+        if args.command == "import-results":
+            return _run_import_results(args)
+        if args.command == "diagnose":
+            return _run_diagnose(args)
+        if args.command == "compare":
+            return _run_compare(args)
+        if args.command == "check":
+            return _run_check(args)
+    except (FileNotFoundError, json.JSONDecodeError, RetrieverLoadError, RuntimeError, ValueError) as exc:
+        print(f"ragprobe error: {exc}", file=sys.stderr)
+        return 2
     parser.error(f"unknown command: {args.command}")
     return 2
 

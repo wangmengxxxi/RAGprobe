@@ -9,3 +9,4 @@ __pycache__/
 .pytest_cache/
 PHASE0_REPORT.md
 tests/tmp_outputs/
+reports/
