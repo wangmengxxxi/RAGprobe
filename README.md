@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/ragprobe-diagnostics/"><img alt="Release" src="https://img.shields.io/badge/release-v1.3.0-blue.svg"></a>
+  <a href="https://pypi.org/project/ragprobe-diagnostics/"><img alt="Release" src="https://img.shields.io/badge/release-v1.4.0-blue.svg"></a>
   <a href="https://github.com/wangmengxxxi/RAGprobe/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
   <img alt="Core loop" src="https://img.shields.io/badge/core-zero--LLM-67e8f9.svg">
