@@ -357,6 +357,18 @@ These baselines do not call an API, download a model, or require an LLM key. The
 are intended as reproducible comparison anchors for CI and experiments, not as a
 replacement for your production embedding stack.
 
+### Domain-General Confusion Labels
+
+RAGProbe treats `confusion_type` as an open string label. Generated hard
+negatives can use domain-specific labels such as `brand_confusion`,
+`product_confusion`, `department_confusion`, or `indication_confusion`.
+Diagnostic reports preserve those labels in confusion distributions and
+metadata-filter recommendations.
+
+For deterministic generation, richer `metadata` fields make confusion labels more
+useful. Non-semantic fields such as `url`, `page`, `id`, and timestamps are
+ignored for confusion labeling.
+
 ## Compare Retriever Changes
 
 Use the same testset before and after changing chunking, embedding, reranking, or

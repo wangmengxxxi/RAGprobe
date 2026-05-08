@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ragprobe.core.confusion import is_metadata_confusion_type
 from ragprobe.core.models import FailurePattern, SystemIssue, TestSet
 
 
@@ -62,7 +63,7 @@ def detect_system_issues(
     metadata_confusions = {
         key: value
         for key, value in confusion_distribution.items()
-        if key in {"subject_confusion", "scope_confusion", "temporal_confusion"}
+        if is_metadata_confusion_type(key)
     }
     if metadata_confusions and max(metadata_confusions.values()) >= 0.3:
         label, value = max(metadata_confusions.items(), key=lambda item: item[1])

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ragprobe.core.confusion import metadata_confusion_type, semantic_metadata_keys
 from ragprobe.core.models import HardNegative, TestCase, TestSet
 from ragprobe.core.schema import SCHEMA_TESTSET, schema_metadata
 
@@ -359,7 +360,8 @@ def render_quality_report(testset: TestSet) -> str:
     validation_summary = testset.metadata.get("validation_summary")
     if isinstance(validation_summary, dict):
         lines.extend(["", "## LLM Validation", ""])
-        lines.append(f"- Removed hard negatives: {validation_summary.get('removed_hard_negatives', 0)}")
+        removed_hard_negatives = validation_summary.get("removed_hard_negatives", 0)
+        lines.append(f"- Removed hard negatives: {removed_hard_negatives}")
         lines.append("- Status distribution:")
         _append_distribution(lines, validation_summary.get("status_distribution", {}))
         lines.append("- Validation warnings:")
@@ -383,25 +385,7 @@ def content_similarity(left: str, right: str) -> float:
 
 
 def metadata_similarity(left: DocumentChunk, right: DocumentChunk) -> float:
-    keys = set(left.metadata) | set(right.metadata)
-    useful_keys = {
-        key
-        for key in keys
-        if key
-        in {
-            "subject",
-            "party",
-            "actor",
-            "condition",
-            "event",
-            "trigger",
-            "scope",
-            "section",
-            "topic",
-            "title",
-            "document_type",
-        }
-    }
+    useful_keys = semantic_metadata_keys(left.metadata, right.metadata)
     if not useful_keys:
         return 0.0
     matches = sum(
@@ -417,12 +401,9 @@ def infer_confusion_type(target: DocumentChunk, candidate: DocumentChunk) -> str
     target_meta = target.metadata
     candidate_meta = candidate.metadata
 
-    skip_keys = {"chunk_id", "id", "content", "source", "source_document"}
-    all_keys = set(target_meta.keys()) | set(candidate_meta.keys())
-
-    for key in sorted(all_keys - skip_keys):
+    for key in sorted(semantic_metadata_keys(target_meta, candidate_meta)):
         if _differs(target_meta.get(key), candidate_meta.get(key)):
-            return f"{key}_confusion"
+            return metadata_confusion_type(key)
 
     if _numbers(target.content) != _numbers(candidate.content):
         return "numeric_confusion"

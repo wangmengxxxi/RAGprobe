@@ -21,7 +21,7 @@ from ragprobe.core.models import (
 )
 from ragprobe.core.repair import RepairApplyResult, RepairPlan
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "__version__",
