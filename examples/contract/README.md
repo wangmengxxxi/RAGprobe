@@ -81,3 +81,11 @@ python -m ragprobe compare \
   --before .tmp/contract-weak-results.json \
   --after .tmp/contract-python-results.json
 ```
+
+## Multi-Retriever Experiment
+
+```bash
+python -m ragprobe experiment \
+  --config examples/contract/experiment.json \
+  --output-dir .tmp/contract-experiment
+```

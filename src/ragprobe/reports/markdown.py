@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ragprobe.core.experiment import ExperimentReport
 from ragprobe.core.models import ComparisonReport, DiagnosticReport
 
 
@@ -115,3 +116,76 @@ def render_compare_markdown(report: ComparisonReport) -> str:
         + (", ".join(report.regressed_cases) if report.regressed_cases else "none")
     )
     return "\n".join(lines) + "\n"
+
+
+def render_experiment_markdown(report: ExperimentReport) -> str:
+    lines = [
+        "# RAGProbe Experiment Report",
+        "",
+        f"- Name: {report.name}",
+        f"- Baseline: {report.baseline}",
+        f"- Testset: {report.metadata.get('testset_name', '')}",
+        f"- Total cases: {report.metadata.get('total_cases', 0)}",
+        "",
+        "## Retriever Metrics",
+        "",
+        "| Retriever | Hit Rate | MRR | FPR | Failures |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for run in report.runs:
+        diagnostic = run.report
+        lines.append(
+            f"| {run.name} | {diagnostic.hit_rate:.3f} | {diagnostic.mrr:.3f} | "
+            f"{diagnostic.fpr:.3f} | {len(diagnostic.failure_cases)} |"
+        )
+
+    if report.best_by_metric:
+        lines.extend(["", "## Best By Metric", ""])
+        lines.append(f"- Hit Rate: {report.best_by_metric.get('hit_rate', '')}")
+        lines.append(f"- MRR: {report.best_by_metric.get('mrr', '')}")
+        lines.append(f"- FPR: {report.best_by_metric.get('fpr', '')}")
+
+    if report.comparisons:
+        lines.extend(["", "## Baseline Comparisons", ""])
+        for item in report.comparisons:
+            lines.append(f"### {item.candidate} vs {item.baseline}")
+            lines.append("")
+            for delta in item.comparison.deltas:
+                lines.append(
+                    f"- {delta.metric}: {delta.before:.3f} -> {delta.after:.3f} "
+                    f"({delta.delta:+.3f})"
+                )
+            lines.append(
+                "- Improved cases: "
+                + (
+                    ", ".join(item.comparison.improved_cases)
+                    if item.comparison.improved_cases
+                    else "none"
+                )
+            )
+            lines.append(
+                "- Regressed cases: "
+                + (
+                    ", ".join(item.comparison.regressed_cases)
+                    if item.comparison.regressed_cases
+                    else "none"
+                )
+            )
+            if item.failure_pattern_deltas:
+                lines.append("- Failure pattern deltas:")
+                for key, value in item.failure_pattern_deltas.items():
+                    lines.append(f"  - {key}: {value:+d}")
+            if item.confusion_deltas:
+                lines.append("- Confusion distribution deltas:")
+                for key, value in item.confusion_deltas.items():
+                    lines.append(f"  - {key}: {value:+.1%}")
+            lines.append("")
+
+    lines.extend(["## Output Files", ""])
+    result_files = report.metadata.get("result_files", {})
+    report_files = report.metadata.get("report_files", {})
+    for run in report.runs:
+        lines.append(f"- {run.name} results: `{result_files.get(run.name, run.results_path)}`")
+        lines.append(f"- {run.name} report: `{report_files.get(run.name, run.report_path)}`")
+
+    return "\n".join(lines).rstrip() + "\n"

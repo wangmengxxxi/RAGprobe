@@ -8,6 +8,7 @@ from typing import Any
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.checks import CheckResult, check_thresholds
 from ragprobe.core.compare import compare_reports
+from ragprobe.core.experiment import ExperimentReport, run_experiment
 from ragprobe.core.generator import (
     generate_testset_from_chunks,
     load_chunks,
@@ -136,7 +137,9 @@ class RAGProbe:
                 elif judge_provider == "openai-compatible":
                     judge_selected_base_url = judge_base_url or selected_base_url
                     if not judge_selected_base_url:
-                        raise ValueError("judge_base_url is required for judge_llm='openai-compatible'")
+                        raise ValueError(
+                            "judge_base_url is required for judge_llm='openai-compatible'"
+                        )
                     judge_client = OpenAICompatibleClient.from_env(
                         env_var=judge_selected_env,
                         model=judge_selected_model,
@@ -186,9 +189,14 @@ class RAGProbe:
         timeout: float = 30.0,
         batch_size: int = 1,
         content_match_threshold: float = 0.9,
-    ) -> list[RetrievalResult]:
+        ) -> list[RetrievalResult]:
         loaded_testset = _coerce_testset(testset)
-        sources = [retriever is not None, retriever_fn is not None, retriever_cmd is not None, endpoint is not None]
+        sources = [
+            retriever is not None,
+            retriever_fn is not None,
+            retriever_cmd is not None,
+            endpoint is not None,
+        ]
         if sum(sources) != 1:
             raise ValueError("run requires exactly one retriever source")
 
@@ -265,6 +273,15 @@ class RAGProbe:
             content_match_threshold=content_match_threshold,
         )
         return compare_reports(before_report, after_report)
+
+    def experiment(
+        self,
+        *,
+        config: dict[str, Any] | str | Path,
+        output_dir: str | Path | None = None,
+    ) -> ExperimentReport:
+        """Run a multi-retriever experiment from a JSON-like config."""
+        return run_experiment(config, output_dir=output_dir)
 
     def check(
         self,

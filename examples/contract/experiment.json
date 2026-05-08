@@ -1,0 +1,16 @@
+{
+  "name": "contract-retriever-ab",
+  "testset": "testset.json",
+  "baseline": "weak",
+  "top_k": 10,
+  "retrievers": [
+    {
+      "name": "weak",
+      "retriever": "weak_python_retriever.py"
+    },
+    {
+      "name": "tuned",
+      "retriever": "python_retriever.py"
+    }
+  ]
+}

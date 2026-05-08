@@ -11,6 +11,7 @@ from ragprobe import __version__
 from ragprobe.core.analyzer import DiagnosticAnalyzer
 from ragprobe.core.checks import check_thresholds
 from ragprobe.core.compare import compare_reports
+from ragprobe.core.experiment import run_experiment
 from ragprobe.core.generator import (
     add_case,
     generate_testset_from_chunks,
@@ -30,15 +31,19 @@ from ragprobe.core.llm_generation import (
 )
 from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.runner import (
+    RetrieverLoadError,
     load_endpoint_config,
     run_endpoint,
     run_retriever_command,
     run_retriever_script,
-    RetrieverLoadError,
 )
 from ragprobe.core.validation import validate_results_report, validate_testset
 from ragprobe.io.jsonl import load_report, load_results, load_testset, save_json
-from ragprobe.reports.markdown import render_compare_markdown, render_markdown
+from ragprobe.reports.markdown import (
+    render_compare_markdown,
+    render_experiment_markdown,
+    render_markdown,
+)
 from ragprobe.reports.terminal import render_compare_terminal, render_terminal
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -191,6 +196,14 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--format", choices=["terminal", "markdown", "json"], default="terminal")
     compare.add_argument("--content-match-threshold", type=float, default=0.9)
 
+    experiment = subparsers.add_parser(
+        "experiment",
+        help="Run and compare multiple retrievers.",
+        description="Run a JSON-configured multi-retriever experiment and write reports.",
+    )
+    experiment.add_argument("--config", required=True, help="Experiment JSON config path.")
+    experiment.add_argument("--output-dir", required=True, help="Directory for experiment outputs.")
+
     check = subparsers.add_parser(
         "check",
         help="Fail when diagnostic metrics cross thresholds.",
@@ -236,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_diagnose(args)
         if args.command == "compare":
             return _run_compare(args)
+        if args.command == "experiment":
+            return _run_experiment(args)
         if args.command == "check":
             return _run_check(args)
     except (
@@ -322,7 +337,11 @@ def _run_generate(args: argparse.Namespace) -> int:
             hard_negative_top_k=args.hard_negative_top_k,
             hn_strategy=args.hn_strategy,
         )
-        judge_client = _build_judge_client(args, fallback_provider=args.llm, fallback_base_url=base_url)
+        judge_client = _build_judge_client(
+            args,
+            fallback_provider=args.llm,
+            fallback_base_url=base_url,
+        )
         testset = generate_testset_from_chunks_llm(
             chunks,
             client=client,
@@ -353,11 +372,16 @@ def _run_generate(args: argparse.Namespace) -> int:
 
 def _confirm_llm_generation(args: argparse.Namespace, chunks) -> None:
     estimate = estimate_llm_generation(chunks, num_cases=args.num_cases)
+    displayed_base_url = (
+        args.base_url or DEFAULT_QWEN_BASE_URL
+        if args.llm == "qwen"
+        else args.base_url
+    )
     message = (
         "LLM-assisted generation will call the provider API.\n"
         f"  provider: {args.llm}\n"
         f"  model: {args.model}\n"
-        f"  base_url: {args.base_url or DEFAULT_QWEN_BASE_URL if args.llm == 'qwen' else args.base_url}\n"
+        f"  base_url: {displayed_base_url}\n"
         f"  api_key_env: {args.api_key_env}\n"
         f"  calls: {estimate['calls']}\n"
         f"  estimated input tokens: {estimate['estimated_input_tokens']}\n"
@@ -526,6 +550,16 @@ def _run_compare(args: argparse.Namespace) -> int:
         else render_compare_terminal(report)
     )
     _emit_text(text, args.output)
+    return 0
+
+
+def _run_experiment(args: argparse.Namespace) -> int:
+    report = run_experiment(args.config, output_dir=args.output_dir)
+    _emit_text(
+        render_experiment_markdown(report),
+        Path(args.output_dir) / "experiment_report.md",
+    )
+    print(f"experiment report: {Path(args.output_dir) / 'experiment_report.md'}")
     return 0
 
 
