@@ -82,3 +82,14 @@ def test_python_api_requires_base_url_for_generic_provider() -> None:
         assert "base_url is required" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_python_api_accepts_llm_validation_flag_for_default_generation() -> None:
+    probe = RAGProbe()
+    testset = probe.generate(
+        chunks=EXAMPLES / "chunks.jsonl",
+        num_cases=1,
+        llm_validate=True,
+    )
+
+    assert testset.cases[0].metadata["generator_mode"] == "standard"

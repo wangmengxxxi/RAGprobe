@@ -124,6 +124,20 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--yes", action="store_true", help="Skip LLM cost confirmation prompt.")
     generate.add_argument("--cache-dir", default=".ragprobe_cache")
     generate.add_argument("--no-cache", action="store_true", help="Disable LLM generation cache.")
+    generate.add_argument(
+        "--llm-validate",
+        action="store_true",
+        help="Use an LLM judge during generation to validate answerability.",
+    )
+    generate.add_argument("--judge-llm", choices=["qwen", "openai-compatible"], required=False)
+    generate.add_argument("--judge-model", required=False)
+    generate.add_argument("--judge-base-url", required=False)
+    generate.add_argument("--judge-api-key-env", required=False)
+    generate.add_argument(
+        "--keep-rejected",
+        action="store_true",
+        help="Keep cases rejected by generation-time validation.",
+    )
 
     add_case_cmd = subparsers.add_parser("add-case", help="Append a manual bad case to a testset.")
     add_case_cmd.add_argument("--testset", required=True)
@@ -308,6 +322,7 @@ def _run_generate(args: argparse.Namespace) -> int:
             hard_negative_top_k=args.hard_negative_top_k,
             hn_strategy=args.hn_strategy,
         )
+        judge_client = _build_judge_client(args, fallback_provider=args.llm, fallback_base_url=base_url)
         testset = generate_testset_from_chunks_llm(
             chunks,
             client=client,
@@ -318,6 +333,8 @@ def _run_generate(args: argparse.Namespace) -> int:
             cache_dir=args.cache_dir,
             use_cache=not args.no_cache,
             config=config,
+            judge_client=judge_client,
+            keep_rejected=args.keep_rejected,
         )
     else:
         testset = generate_testset_from_chunks(
@@ -353,6 +370,34 @@ def _confirm_llm_generation(args: argparse.Namespace, chunks) -> None:
     answer = input("Continue? [y/N] ").strip().lower()
     if answer not in {"y", "yes"}:
         raise LLMGenerationError("LLM generation cancelled")
+
+
+def _build_judge_client(
+    args: argparse.Namespace,
+    fallback_provider: str,
+    fallback_base_url: str,
+):
+    if not args.llm_validate:
+        return None
+    provider = args.judge_llm or fallback_provider
+    model = args.judge_model or args.model
+    api_key_env = args.judge_api_key_env or args.api_key_env
+    if provider == "qwen":
+        return QwenClient.from_env(
+            env_var=api_key_env,
+            model=model,
+            base_url=args.judge_base_url or DEFAULT_QWEN_BASE_URL,
+        )
+    if provider == "openai-compatible":
+        base_url = args.judge_base_url or fallback_base_url
+        if not base_url:
+            raise ValueError("--judge-base-url is required for --judge-llm openai-compatible")
+        return OpenAICompatibleClient.from_env(
+            env_var=api_key_env,
+            model=model,
+            base_url=base_url,
+        )
+    raise ValueError(f"unsupported judge LLM provider: {provider}")
 
 
 def _run_add_case(args: argparse.Namespace) -> int:

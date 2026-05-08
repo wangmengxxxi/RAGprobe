@@ -159,6 +159,24 @@ Notes:
 - `.ragprobe_cache/` and local output directories are ignored by git.
 - `diagnose`, `compare`, and `check` remain zero-LLM deterministic commands.
 
+For stricter generation-time validation, add an LLM judge pass:
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/llm-validated-testset.json \
+  --llm openai-compatible \
+  --base-url https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
+  --model qwen-plus \
+  --llm-validate \
+  --yes
+```
+
+The validation pass asks whether the expected chunk can answer the generated
+query and whether each hard negative can also answer it. Answerable hard
+negatives are removed; cases whose expected chunk cannot answer the query are
+rejected unless `--keep-rejected` is passed.
+
 ## Python API
 
 You can use the same workflow from Python code without shelling out to the CLI:
@@ -200,6 +218,7 @@ report = probe.evaluate(
     chunks="examples/contract/chunks.jsonl",
     retriever="examples/contract/python_retriever.py",
     hard_negative_top_k=2,
+    llm_validate=True,
 )
 
 print(report.hit_rate, report.fpr)

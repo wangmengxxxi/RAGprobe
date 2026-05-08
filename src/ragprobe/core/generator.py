@@ -354,6 +354,19 @@ def render_quality_report(testset: TestSet) -> str:
             lines.append(f"- {warning}: {count}")
     else:
         lines.append("- none")
+    validation_summary = testset.metadata.get("validation_summary")
+    if isinstance(validation_summary, dict):
+        lines.extend(["", "## LLM Validation", ""])
+        lines.append(f"- Removed hard negatives: {validation_summary.get('removed_hard_negatives', 0)}")
+        lines.append("- Status distribution:")
+        _append_distribution(lines, validation_summary.get("status_distribution", {}))
+        lines.append("- Validation warnings:")
+        validation_warnings = validation_summary.get("warning_counts", {})
+        if validation_warnings:
+            for warning, count in validation_warnings.items():
+                lines.append(f"  - {warning}: {count}")
+        else:
+            lines.append("  - none")
     return "\n".join(lines) + "\n"
 
 

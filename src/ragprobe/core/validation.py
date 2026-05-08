@@ -49,6 +49,12 @@ def validate_testset(testset: TestSet) -> ValidationReport:
                 )
             for warning in quality.get("warnings", []):
                 warnings.append(f"case[{index}] quality warning: {warning}")
+        llm_validation = case.metadata.get("validation", {})
+        if isinstance(llm_validation, dict):
+            if llm_validation.get("status") == "rejected":
+                warnings.append(f"case[{index}] failed LLM validation")
+            for warning in llm_validation.get("warnings", []):
+                warnings.append(f"case[{index}] LLM validation warning: {warning}")
 
     chunks = testset.metadata.get("chunks")
     if chunks is None:
@@ -88,6 +94,14 @@ def validate_testset(testset: TestSet) -> ValidationReport:
         if average_score < 0.7:
             warnings.append(
                 f"average generated quality score is {average_score:.3f}; review before CI use"
+            )
+    validation_summary = testset.metadata.get("validation_summary", {})
+    if isinstance(validation_summary, dict):
+        warning_counts = validation_summary.get("warning_counts", {})
+        if warning_counts:
+            warnings.append(
+                "LLM validation warnings present: "
+                + ", ".join(f"{key}={value}" for key, value in warning_counts.items())
             )
 
     return ValidationReport(valid=not errors, errors=errors, warnings=warnings)

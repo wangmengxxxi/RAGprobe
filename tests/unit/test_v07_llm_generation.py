@@ -7,9 +7,11 @@ from ragprobe.cli.main import main
 from ragprobe.core.generator import load_chunks
 from ragprobe.core.llm_generation import (
     LLMGenerationConfig,
+    LLMJudgeDecision,
     LLMGeneratedCase,
     LLMHardNegativeDecision,
     generate_testset_from_chunks_llm,
+    validate_llm_generated_case,
     parse_generated_case,
 )
 from ragprobe.io.jsonl import load_testset
@@ -38,6 +40,27 @@ class FakeLLMClient:
             ]
             if candidates
             else [],
+        )
+
+
+class FakeJudgeClient:
+    def __init__(self, expected_answerable: bool = True, hard_negative_answerable: bool = False) -> None:
+        self.expected_answerable = expected_answerable
+        self.hard_negative_answerable = hard_negative_answerable
+        self.calls = []
+
+    def judge_answerability(self, query, chunk, role, config):
+        self.calls.append((query, chunk.chunk_id, role))
+        if role == "expected_chunk":
+            return LLMJudgeDecision(
+                answerable=self.expected_answerable,
+                confidence=0.9,
+                reason="expected judgment",
+            )
+        return LLMJudgeDecision(
+            answerable=self.hard_negative_answerable,
+            confidence=0.8,
+            reason="negative judgment",
         )
 
 
@@ -161,3 +184,62 @@ def test_llm_generation_preserves_provider_config_metadata() -> None:
     assert testset.metadata["llm_model"] == "custom-model"
     assert testset.metadata["llm_base_url"] == "http://localhost:8000/v1/chat/completions"
     assert testset.metadata["llm_api_key_env"] == "CUSTOM_API_KEY"
+
+
+def test_rule_validation_flags_extractive_and_generic_query() -> None:
+    chunks = load_chunks(FIXTURES / "chunks.jsonl")
+    generated = LLMGeneratedCase(
+        query="买方逾期付款超过30天，应按未付款金额支付违约金。",
+        hard_negatives=[],
+    )
+    validation = validate_llm_generated_case(
+        generated=generated,
+        expected_chunk=chunks[0],
+        hard_negatives=[],
+        chunks_by_id={chunk.chunk_id: chunk for chunk in chunks},
+    )
+
+    assert "query_too_extractive" in validation.warnings
+    assert validation.status == "warning"
+
+
+def test_llm_judge_removes_answerable_hard_negative() -> None:
+    chunks = load_chunks(FIXTURES / "chunks.jsonl")
+    client = FakeLLMClient()
+    judge = FakeJudgeClient(expected_answerable=True, hard_negative_answerable=True)
+    cache_dir = OUTPUT_DIR / f"v07-judge-cache-{uuid4().hex}"
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    testset = generate_testset_from_chunks_llm(
+        chunks,
+        client=client,
+        judge_client=judge,
+        num_cases=1,
+        hard_negative_top_k=1,
+        cache_dir=cache_dir,
+    )
+
+    case = testset.cases[0]
+    assert case.hard_negatives == []
+    assert case.metadata["validation"]["removed_hard_negatives"]
+    assert "hard_negative_answerable" in case.metadata["validation"]["warnings"]
+    assert testset.metadata["validation_summary"]["removed_hard_negatives"] == 1
+
+
+def test_llm_judge_rejected_case_is_dropped_by_default() -> None:
+    chunks = load_chunks(FIXTURES / "chunks.jsonl")
+    client = FakeLLMClient()
+    judge = FakeJudgeClient(expected_answerable=False)
+    cache_dir = OUTPUT_DIR / f"v07-reject-cache-{uuid4().hex}"
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    testset = generate_testset_from_chunks_llm(
+        chunks,
+        client=client,
+        judge_client=judge,
+        num_cases=1,
+        cache_dir=cache_dir,
+    )
+
+    assert testset.cases == []
+    assert testset.metadata["quality_summary"]["total_cases"] == 0

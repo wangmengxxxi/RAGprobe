@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from ragprobe.core.generator import (
     DocumentChunk,
     assess_case_quality,
+    content_similarity,
     label_difficulty,
     mine_hard_negatives,
     summarize_testset_quality,
@@ -24,6 +25,16 @@ from ragprobe.core.models import HardNegative, TestCase, TestSet
 DEFAULT_QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 DEFAULT_QWEN_MODEL = "qwen-plus"
 PROMPT_VERSION = "ragprobe-v0.7-openai-compatible-generation-v1"
+EXTRACTIVE_QUERY_THRESHOLD = 0.8
+GENERIC_QUERY_TOKENS = {
+    "相关规定",
+    "相关内容",
+    "如何处理",
+    "怎么办",
+    "what",
+    "about",
+    "document",
+}
 
 
 class LLMGenerationError(RuntimeError):
@@ -57,6 +68,24 @@ class LLMGeneratedCase:
     hard_negatives: list[LLMHardNegativeDecision] = field(default_factory=list)
 
 
+@dataclass
+class LLMJudgeDecision:
+    answerable: bool
+    confidence: float | None = None
+    reason: str = ""
+
+
+@dataclass
+class LLMCaseValidation:
+    status: str = "passed"
+    warnings: list[str] = field(default_factory=list)
+    rejected: bool = False
+    expected_answerable: bool | None = None
+    expected_confidence: float | None = None
+    expected_reason: str = ""
+    removed_hard_negatives: list[str] = field(default_factory=list)
+
+
 class LLMClient(Protocol):
     def generate_case(
         self,
@@ -65,6 +94,17 @@ class LLMClient(Protocol):
         config: LLMGenerationConfig,
     ) -> LLMGeneratedCase:
         """Generate one retrieval test case for a target chunk."""
+
+
+class LLMJudgeClient(Protocol):
+    def judge_answerability(
+        self,
+        query: str,
+        chunk: DocumentChunk,
+        role: str,
+        config: LLMGenerationConfig,
+    ) -> LLMJudgeDecision:
+        """Judge whether a chunk can answer a query."""
 
 
 class OpenAICompatibleClient:
@@ -148,6 +188,55 @@ class OpenAICompatibleClient:
             raise LLMGenerationError("LLM API response did not contain choices[0].message.content") from exc
         return parse_generated_case(content)
 
+    def judge_answerability(
+        self,
+        query: str,
+        chunk: DocumentChunk,
+        role: str,
+        config: LLMGenerationConfig,
+    ) -> LLMJudgeDecision:
+        payload = {
+            "model": self.model,
+            "temperature": 0,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You audit retrieval test cases. Return JSON only. "
+                        "Decide whether the provided chunk can answer the user query. "
+                        "Do not answer the user query."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": build_judge_prompt(query=query, chunk=chunk, role=role),
+                },
+            ],
+        }
+        request = urllib.request.Request(
+            self.base_url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise LLMGenerationError(f"LLM judge API HTTP {exc.code}: {body}") from exc
+        except urllib.error.URLError as exc:
+            raise LLMGenerationError(f"LLM judge API request failed: {exc.reason}") from exc
+
+        try:
+            content = response_payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMGenerationError("LLM judge response did not contain choices[0].message.content") from exc
+        return parse_judge_decision(content)
+
 
 class QwenClient(OpenAICompatibleClient):
     """Alibaba Qwen preset using DashScope compatible mode."""
@@ -178,6 +267,9 @@ def generate_testset_from_chunks_llm(
     cache_dir: str | Path | None = ".ragprobe_cache",
     use_cache: bool = True,
     config: LLMGenerationConfig | None = None,
+    validate_rules: bool = True,
+    judge_client: LLMJudgeClient | None = None,
+    keep_rejected: bool = False,
 ) -> TestSet:
     if hn_strategy not in {"lexical", "hybrid"}:
         raise ValueError("hn_strategy must be 'lexical' or 'hybrid'")
@@ -213,11 +305,23 @@ def generate_testset_from_chunks_llm(
             mined,
             hard_negative_top_k,
         )
+        validation = validate_llm_generated_case(
+            generated=generated,
+            expected_chunk=chunk,
+            hard_negatives=hard_negatives,
+            chunks_by_id={item.chunk_id: item for item in chunks},
+            validate_rules=validate_rules,
+            judge_client=judge_client,
+            config=config,
+        )
+        if validation.rejected and not keep_rejected:
+            continue
         quality = assess_case_quality(
             query=generated.query,
             expected_chunk=chunk,
             hard_negatives=hard_negatives,
         )
+        quality = _merge_validation_into_quality(quality, validation)
         cases.append(
             TestCase(
                 id=f"generated_case_{index:03d}",
@@ -237,6 +341,7 @@ def generate_testset_from_chunks_llm(
                     "hard_negative_strategy": hn_strategy,
                     "tags": list(chunk.metadata.get("tags", [])),
                     "quality": quality,
+                    "validation": _validation_to_dict(validation),
                 },
             )
         )
@@ -256,6 +361,7 @@ def generate_testset_from_chunks_llm(
             "hard_negative_strategy": hn_strategy,
             "chunks": {chunk.chunk_id: chunk.content for chunk in chunks},
             "quality_summary": summarize_testset_quality(cases),
+            "validation_summary": summarize_llm_validation(cases),
         },
     )
 
@@ -297,6 +403,21 @@ def build_generation_prompt(target: DocumentChunk, candidates: list[DocumentChun
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def build_judge_prompt(query: str, chunk: DocumentChunk, role: str) -> str:
+    payload = {
+        "task": "Judge whether the chunk can answer the query.",
+        "role": role,
+        "query": query,
+        "chunk": _chunk_prompt_payload(chunk),
+        "output_schema": {
+            "answerable": True,
+            "confidence": 0.0,
+            "reason": "short explanation",
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def parse_generated_case(content: str) -> LLMGeneratedCase:
     payload = _extract_json_object(content)
     query = str(payload.get("query", "")).strip()
@@ -316,6 +437,201 @@ def parse_generated_case(content: str) -> LLMGeneratedCase:
             )
         )
     return LLMGeneratedCase(query=query, hard_negatives=hard_negatives)
+
+
+def parse_judge_decision(content: str) -> LLMJudgeDecision:
+    payload = _extract_json_object(content)
+    return LLMJudgeDecision(
+        answerable=bool(payload.get("answerable", False)),
+        confidence=_optional_float(payload.get("confidence")),
+        reason=str(payload.get("reason", "")),
+    )
+
+
+def validate_llm_generated_case(
+    generated: LLMGeneratedCase,
+    expected_chunk: DocumentChunk,
+    hard_negatives: list[HardNegative],
+    chunks_by_id: dict[str, DocumentChunk],
+    validate_rules: bool = True,
+    judge_client: LLMJudgeClient | None = None,
+    config: LLMGenerationConfig | None = None,
+) -> LLMCaseValidation:
+    validation = LLMCaseValidation()
+    query = generated.query.strip()
+
+    if validate_rules:
+        _apply_rule_validation(validation, query, expected_chunk, hard_negatives, chunks_by_id)
+
+    if judge_client is not None:
+        if config is None:
+            config = LLMGenerationConfig()
+        expected_decision = judge_client.judge_answerability(
+            query=query,
+            chunk=expected_chunk,
+            role="expected_chunk",
+            config=config,
+        )
+        validation.expected_answerable = expected_decision.answerable
+        validation.expected_confidence = expected_decision.confidence
+        validation.expected_reason = expected_decision.reason
+        if not expected_decision.answerable:
+            validation.warnings.append("expected_chunk_not_answerable")
+            validation.rejected = True
+
+        kept_hard_negatives = []
+        for hard_negative in hard_negatives:
+            candidate = chunks_by_id.get(hard_negative.chunk_id)
+            if candidate is None:
+                kept_hard_negatives.append(hard_negative)
+                continue
+            decision = judge_client.judge_answerability(
+                query=query,
+                chunk=candidate,
+                role="hard_negative",
+                config=config,
+            )
+            if decision.answerable:
+                validation.warnings.append("hard_negative_answerable")
+                validation.removed_hard_negatives.append(hard_negative.chunk_id)
+            else:
+                kept_hard_negatives.append(hard_negative)
+        hard_negatives[:] = kept_hard_negatives
+
+    if validation.rejected:
+        validation.status = "rejected"
+    elif validation.warnings:
+        validation.status = "warning"
+    else:
+        validation.status = "passed"
+    return validation
+
+
+def summarize_llm_validation(cases: list[TestCase]) -> dict[str, Any]:
+    statuses = [
+        str(case.metadata.get("validation", {}).get("status", "unknown"))
+        for case in cases
+    ]
+    warnings = [
+        warning
+        for case in cases
+        for warning in case.metadata.get("validation", {}).get("warnings", [])
+    ]
+    removed = sum(
+        len(case.metadata.get("validation", {}).get("removed_hard_negatives", []))
+        for case in cases
+    )
+    return {
+        "status_distribution": _ratio_counts(statuses),
+        "warning_counts": _count_items(warnings),
+        "removed_hard_negatives": removed,
+    }
+
+
+def _apply_rule_validation(
+    validation: LLMCaseValidation,
+    query: str,
+    expected_chunk: DocumentChunk,
+    hard_negatives: list[HardNegative],
+    chunks_by_id: dict[str, DocumentChunk],
+) -> None:
+    if not query.strip():
+        validation.warnings.append("missing_query")
+        validation.rejected = True
+        return
+
+    if len(query.strip()) < 4:
+        validation.warnings.append("query_too_short")
+        validation.rejected = True
+
+    extractive_score = lcs_ratio(query, expected_chunk.content)
+    if extractive_score > EXTRACTIVE_QUERY_THRESHOLD:
+        validation.warnings.append("query_too_extractive")
+
+    if _is_generic_query(query):
+        validation.warnings.append("query_too_generic")
+
+    expected_overlap = content_similarity(query, expected_chunk.content)
+    for hard_negative in hard_negatives:
+        candidate = chunks_by_id.get(hard_negative.chunk_id)
+        if candidate is None:
+            continue
+        candidate_overlap = content_similarity(query, candidate.content)
+        if candidate_overlap > 0 and candidate_overlap >= expected_overlap:
+            validation.warnings.append("ambiguous_query")
+            break
+
+
+def _merge_validation_into_quality(
+    quality: dict[str, Any],
+    validation: LLMCaseValidation,
+) -> dict[str, Any]:
+    merged = dict(quality)
+    warnings = list(merged.get("warnings", []))
+    for warning in validation.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+    score = float(merged.get("score", 1.0))
+    if validation.rejected:
+        score -= 0.5
+    elif validation.status == "warning":
+        score -= min(0.3, 0.1 * len(validation.warnings))
+    score = max(0.0, min(1.0, round(score, 3)))
+    merged["score"] = score
+    merged["warnings"] = warnings
+    merged["filter_passed"] = bool(merged.get("filter_passed", True)) and not validation.rejected
+    return merged
+
+
+def _validation_to_dict(validation: LLMCaseValidation) -> dict[str, Any]:
+    return {
+        "status": validation.status,
+        "warnings": validation.warnings,
+        "rejected": validation.rejected,
+        "expected_answerable": validation.expected_answerable,
+        "expected_confidence": validation.expected_confidence,
+        "expected_reason": validation.expected_reason,
+        "removed_hard_negatives": validation.removed_hard_negatives,
+    }
+
+
+def lcs_ratio(left: str, right: str) -> float:
+    left = "".join(left.split())
+    right = "".join(right.split())
+    if not left or not right:
+        return 0.0
+    previous = [0] * (len(right) + 1)
+    for left_char in left:
+        current = [0]
+        for index, right_char in enumerate(right, start=1):
+            if left_char == right_char:
+                current.append(previous[index - 1] + 1)
+            else:
+                current.append(max(current[-1], previous[index]))
+        previous = current
+    return previous[-1] / max(1, len(left))
+
+
+def _is_generic_query(query: str) -> bool:
+    compact = "".join(query.lower().split())
+    if len(compact) <= 8:
+        return True
+    return any(token in compact for token in GENERIC_QUERY_TOKENS) and len(compact) <= 18
+
+
+def _count_items(items: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item] = counts.get(item, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _ratio_counts(items: list[str]) -> dict[str, float]:
+    counts = _count_items(items)
+    total = sum(counts.values())
+    if not total:
+        return {}
+    return {key: round(value / total, 4) for key, value in counts.items()}
 
 
 def _llm_decisions_to_hard_negatives(

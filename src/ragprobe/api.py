@@ -81,6 +81,12 @@ class RAGProbe:
         cache_dir: str | Path | None = None,
         use_cache: bool | None = None,
         quality_report: str | Path | None = None,
+        llm_validate: bool = False,
+        judge_llm: str | None = None,
+        judge_model: str | None = None,
+        judge_base_url: str | None = None,
+        judge_api_key_env: str | None = None,
+        keep_rejected: bool = False,
     ) -> TestSet:
         chunk_items = load_chunks(chunks) if isinstance(chunks, (str, Path)) else chunks
         provider = llm if llm is not None else self.llm
@@ -116,6 +122,28 @@ class RAGProbe:
                 hard_negative_top_k=hard_negative_top_k,
                 hn_strategy=hn_strategy,
             )
+            judge_client = None
+            if llm_validate:
+                judge_provider = judge_llm or provider
+                judge_selected_model = judge_model or selected_model
+                judge_selected_env = judge_api_key_env or selected_api_key_env
+                if judge_provider == "qwen":
+                    judge_client = QwenClient.from_env(
+                        env_var=judge_selected_env,
+                        model=judge_selected_model,
+                        base_url=judge_base_url or DEFAULT_QWEN_BASE_URL,
+                    )
+                elif judge_provider == "openai-compatible":
+                    judge_selected_base_url = judge_base_url or selected_base_url
+                    if not judge_selected_base_url:
+                        raise ValueError("judge_base_url is required for judge_llm='openai-compatible'")
+                    judge_client = OpenAICompatibleClient.from_env(
+                        env_var=judge_selected_env,
+                        model=judge_selected_model,
+                        base_url=judge_selected_base_url,
+                    )
+                else:
+                    raise ValueError(f"unsupported judge LLM provider: {judge_provider}")
             testset = generate_testset_from_chunks_llm(
                 chunk_items,
                 client=client,
@@ -126,6 +154,8 @@ class RAGProbe:
                 cache_dir=selected_cache_dir,
                 use_cache=selected_use_cache,
                 config=config,
+                judge_client=judge_client,
+                keep_rejected=keep_rejected,
             )
         else:
             testset = generate_testset_from_chunks(
@@ -270,6 +300,7 @@ class RAGProbe:
         num_cases: int | None = None,
         hard_negative_top_k: int = 1,
         top_k: int = 10,
+        llm_validate: bool = False,
     ) -> DiagnosticReport:
         if testset is None:
             if chunks is None:
@@ -282,6 +313,7 @@ class RAGProbe:
                 api_key_env=api_key_env,
                 num_cases=num_cases,
                 hard_negative_top_k=hard_negative_top_k,
+                llm_validate=llm_validate,
             )
         results = self.run(
             testset=testset,
