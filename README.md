@@ -114,6 +114,103 @@ python -m ragprobe add-case \
   --confusion-type subject_confusion
 ```
 
+## Optional LLM-Assisted Generation
+
+The default generation path is deterministic and does not call any model. For
+higher-quality query phrasing and hard-negative judgment, v0.7 adds opt-in
+generation through OpenAI-compatible chat completion APIs.
+
+Set your API key in the environment:
+
+```bash
+export AI_API_KEY="..."
+```
+
+Then run:
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/llm-testset.json \
+  --llm openai-compatible \
+  --base-url https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
+  --model qwen-plus \
+  --yes \
+  --quality-report .tmp/llm-quality.md
+```
+
+Qwen has a preset, so this shorter command is equivalent for DashScope:
+
+```bash
+python -m ragprobe generate \
+  --chunks examples/contract/chunks.jsonl \
+  --output .tmp/qwen-testset.json \
+  --llm qwen \
+  --model qwen-plus \
+  --yes
+```
+
+Notes:
+
+- RAGProbe reads API keys from an environment variable, defaulting to `AI_API_KEY`.
+- Use `--api-key-env NAME` if a provider key lives in a different variable.
+- Never write API keys into testsets, caches, or commits.
+- LLM generation uses `.ragprobe_cache/` by default to avoid repeated calls.
+- `.ragprobe_cache/` and local output directories are ignored by git.
+- `diagnose`, `compare`, and `check` remain zero-LLM deterministic commands.
+
+## Python API
+
+You can use the same workflow from Python code without shelling out to the CLI:
+
+```python
+from ragprobe import RAGProbe
+
+probe = RAGProbe()
+
+testset = probe.generate(
+    chunks="examples/contract/chunks.jsonl",
+    hard_negative_top_k=2,
+)
+
+results = probe.run(
+    testset=testset,
+    retriever="examples/contract/python_retriever.py",
+)
+
+report = probe.diagnose(testset=testset, results=results)
+check = probe.check(report, min_hit_rate=0.7, min_mrr=0.5, max_fpr=0.3)
+
+print(report.hit_rate, report.mrr, report.fpr)
+print(check.passed)
+```
+
+For OpenAI-compatible providers, pass `llm`, `base_url`, and `model`:
+
+```python
+from ragprobe import RAGProbe
+
+probe = RAGProbe(
+    llm="openai-compatible",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    model="qwen-plus",
+)
+
+report = probe.evaluate(
+    chunks="examples/contract/chunks.jsonl",
+    retriever="examples/contract/python_retriever.py",
+    hard_negative_top_k=2,
+)
+
+print(report.hit_rate, report.fpr)
+```
+
+For Qwen, the shorter preset also works:
+
+```python
+probe = RAGProbe(llm="qwen", model="qwen-plus")
+```
+
 ## Retriever Integration
 
 ### Python
@@ -234,7 +331,7 @@ python -m ragprobe validate --testset .tmp/generated-testset.json
 ## Roadmap
 
 - v0.6: CI, examples, schema docs, README, release polish.
-- v0.7: optional LLM-assisted testset generation and optional embedding support.
+- v0.7: optional OpenAI-compatible testset generation and hard-negative judgment.
 - v0.8: multi-retriever experiments.
 - v0.9: LLM judge and testset audit.
 - v1.0: stable CLI and JSON schema.

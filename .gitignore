@@ -10,3 +10,5 @@ __pycache__/
 PHASE0_REPORT.md
 tests/tmp_outputs/
 reports/
+.ragprobe_cache/
+llm_outputs/

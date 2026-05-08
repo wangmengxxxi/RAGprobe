@@ -18,6 +18,16 @@ from ragprobe.core.generator import (
     render_quality_report,
     sample_testset,
 )
+from ragprobe.core.llm_generation import (
+    DEFAULT_QWEN_BASE_URL,
+    DEFAULT_QWEN_MODEL,
+    LLMGenerationConfig,
+    LLMGenerationError,
+    OpenAICompatibleClient,
+    QwenClient,
+    estimate_llm_generation,
+    generate_testset_from_chunks_llm,
+)
 from ragprobe.core.matching import apply_content_fallback
 from ragprobe.core.runner import (
     load_endpoint_config,
@@ -91,6 +101,29 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--mode", choices=["standard"], default="standard")
     generate.add_argument("--hn-strategy", choices=["lexical", "hybrid"], default="hybrid")
     generate.add_argument("--quality-report", required=False)
+    generate.add_argument(
+        "--llm",
+        choices=["qwen", "openai-compatible"],
+        required=False,
+        help="Optional LLM-assisted generation provider.",
+    )
+    generate.add_argument("--model", default=DEFAULT_QWEN_MODEL, help="LLM model name.")
+    generate.add_argument(
+        "--base-url",
+        required=False,
+        help=(
+            "OpenAI-compatible chat completions URL. Defaults to DashScope compatible mode "
+            "for --llm qwen."
+        ),
+    )
+    generate.add_argument(
+        "--api-key-env",
+        default="AI_API_KEY",
+        help="Environment variable that stores the LLM API key.",
+    )
+    generate.add_argument("--yes", action="store_true", help="Skip LLM cost confirmation prompt.")
+    generate.add_argument("--cache-dir", default=".ragprobe_cache")
+    generate.add_argument("--no-cache", action="store_true", help="Disable LLM generation cache.")
 
     add_case_cmd = subparsers.add_parser("add-case", help="Append a manual bad case to a testset.")
     add_case_cmd.add_argument("--testset", required=True)
@@ -191,7 +224,14 @@ def main(argv: list[str] | None = None) -> int:
             return _run_compare(args)
         if args.command == "check":
             return _run_check(args)
-    except (FileNotFoundError, json.JSONDecodeError, RetrieverLoadError, RuntimeError, ValueError) as exc:
+    except (
+        FileNotFoundError,
+        json.JSONDecodeError,
+        RetrieverLoadError,
+        LLMGenerationError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"ragprobe error: {exc}", file=sys.stderr)
         return 2
     parser.error(f"unknown command: {args.command}")
@@ -240,18 +280,79 @@ def _run_run(args: argparse.Namespace) -> int:
 
 def _run_generate(args: argparse.Namespace) -> int:
     chunks = load_chunks(args.chunks)
-    testset = generate_testset_from_chunks(
-        chunks,
-        num_cases=args.num_cases,
-        hard_negative_top_k=args.hard_negative_top_k,
-        name=args.name,
-        mode=args.mode,
-        hn_strategy=args.hn_strategy,
-    )
+    if args.llm:
+        _confirm_llm_generation(args, chunks)
+        if args.llm == "qwen":
+            base_url = args.base_url or DEFAULT_QWEN_BASE_URL
+            client = QwenClient.from_env(
+                env_var=args.api_key_env,
+                model=args.model,
+                base_url=base_url,
+            )
+        elif args.llm == "openai-compatible":
+            if not args.base_url:
+                raise ValueError("--base-url is required for --llm openai-compatible")
+            base_url = args.base_url
+            client = OpenAICompatibleClient.from_env(
+                env_var=args.api_key_env,
+                model=args.model,
+                base_url=base_url,
+            )
+        else:
+            raise ValueError(f"unsupported LLM provider: {args.llm}")
+        config = LLMGenerationConfig(
+            provider=args.llm,
+            model=args.model,
+            base_url=base_url,
+            api_key_env=args.api_key_env,
+            hard_negative_top_k=args.hard_negative_top_k,
+            hn_strategy=args.hn_strategy,
+        )
+        testset = generate_testset_from_chunks_llm(
+            chunks,
+            client=client,
+            num_cases=args.num_cases,
+            hard_negative_top_k=args.hard_negative_top_k,
+            name=args.name,
+            hn_strategy=args.hn_strategy,
+            cache_dir=args.cache_dir,
+            use_cache=not args.no_cache,
+            config=config,
+        )
+    else:
+        testset = generate_testset_from_chunks(
+            chunks,
+            num_cases=args.num_cases,
+            hard_negative_top_k=args.hard_negative_top_k,
+            name=args.name,
+            mode=args.mode,
+            hn_strategy=args.hn_strategy,
+        )
     save_json(testset, args.output)
     if args.quality_report:
         _emit_text(render_quality_report(testset), args.quality_report)
     return 0
+
+
+def _confirm_llm_generation(args: argparse.Namespace, chunks) -> None:
+    estimate = estimate_llm_generation(chunks, num_cases=args.num_cases)
+    message = (
+        "LLM-assisted generation will call the provider API.\n"
+        f"  provider: {args.llm}\n"
+        f"  model: {args.model}\n"
+        f"  base_url: {args.base_url or DEFAULT_QWEN_BASE_URL if args.llm == 'qwen' else args.base_url}\n"
+        f"  api_key_env: {args.api_key_env}\n"
+        f"  calls: {estimate['calls']}\n"
+        f"  estimated input tokens: {estimate['estimated_input_tokens']}\n"
+        f"  estimated output tokens: {estimate['estimated_output_tokens']}\n"
+        f"  note: {estimate['note']}"
+    )
+    print(message, file=sys.stderr)
+    if args.yes:
+        return
+    answer = input("Continue? [y/N] ").strip().lower()
+    if answer not in {"y", "yes"}:
+        raise LLMGenerationError("LLM generation cancelled")
 
 
 def _run_add_case(args: argparse.Namespace) -> int:

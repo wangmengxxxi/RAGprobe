@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ragprobe"
-version = "0.6.0"
+version = "0.7.0"
 description = "Retrieval diagnostics for RAG systems."
 readme = "README.md"
 requires-python = ">=3.10"
