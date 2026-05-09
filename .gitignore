@@ -16,3 +16,10 @@ llm_outputs/
 dist/
 build/
 *.egg-info/
+dist-1.4.0
+.claude/
+.tmp_build/
+.pytest_tmp/
+.ruff_cache/
+dist-1.4.1/
+dist-1.5.0/

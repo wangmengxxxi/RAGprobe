@@ -12,6 +12,7 @@ from ragprobe.core.models import (
     HardNegative,
     MetricDelta,
     MetricSignal,
+    PipelineResult,
     Recommendation,
     RetrievalResult,
     RetrievedChunk,
@@ -21,7 +22,7 @@ from ragprobe.core.models import (
 )
 from ragprobe.core.repair import RepairApplyResult, RepairPlan
 
-__version__ = "1.3.0"
+__version__ = "1.5.0"
 
 __all__ = [
     "__version__",
@@ -38,6 +39,7 @@ __all__ = [
     "ComparisonReport",
     "MetricSignal",
     "MetricDelta",
+    "PipelineResult",
     "Recommendation",
     "RetrievalResult",
     "RetrievedChunk",

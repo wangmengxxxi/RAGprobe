@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/ragprobe-diagnostics/"><img alt="Release" src="https://img.shields.io/badge/release-v1.4.0-blue.svg"></a>
+  <a href="https://pypi.org/project/ragprobe-diagnostics/"><img alt="Release" src="https://img.shields.io/badge/release-v1.5.0-blue.svg"></a>
   <a href="https://github.com/wangmengxxxi/RAGprobe/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
   <img alt="Core loop" src="https://img.shields.io/badge/core-zero--LLM-67e8f9.svg">
@@ -122,15 +122,40 @@ python -m ragprobe run \
 
 ### chunks.jsonl
 
-最低要求只需要 `chunk_id` 和 `content`：
+最低要求只需要 `content`（或 `text`）字段：
 
 ```jsonl
-{"chunk_id":"c1","content":"买方逾期付款超过30天，应按未付款金额支付违约金。"}
-{"chunk_id":"c2","content":"卖方延期交货超过15日，应承担延期交货违约责任。"}
+{"content":"买方逾期付款超过30天，应按未付款金额支付违约金。"}
+{"content":"卖方延期交货超过15日，应承担延期交货违约责任。"}
 ```
 
-`metadata` 不是必填项。没有 metadata 时，RAGProbe 仍可生成测试集和诊断指标；
-有 metadata 时，confusion label 会更细：
+没有 `chunk_id` 时，RAGProbe 自动按顺序编号（`chunk_001`、`chunk_002`...）。
+没有 `metadata` 时，仍可生成测试集和诊断指标，但 confusion type 只能推断为
+`semantic_only`。
+
+**效果更好的写法**——提供 `chunk_id` + `metadata`：
+
+```jsonl
+{"chunk_id":"c1","content":"买方逾期付款超过30天，应按未付款金额支付违约金。","metadata":{"subject":"buyer","event":"late_payment"}}
+{"chunk_id":"c2","content":"卖方延期交货超过15日，应承担延期交货违约责任。","metadata":{"subject":"seller","event":"late_delivery"}}
+```
+
+各字段对诊断质量的影响：
+
+| 字段 | 是否必填 | 不提供时的影响 |
+|------|----------|----------------|
+| `content`（或 `text`） | 是 | 无法生成测试集 |
+| `chunk_id`（或 `id`） | 否，自动编号 | 无法跨次运行稳定追踪同一 chunk，回归对比可能不准 |
+| `metadata` | 否 | confusion type 退化为 `semantic_only`，无法区分是品牌混淆、主体混淆还是时间混淆 |
+| `source_document` | 否 | 报告中不显示来源文件信息 |
+
+**推荐做法**：
+
+- 开发初期快速验证：只提供 `content` 即可跑通
+- 正式回归测试：补上 `chunk_id`，确保每次运行结果可追踪
+- 精细诊断：加 `metadata`，让 RAGProbe 告诉你 retriever 具体在哪个维度犯错
+
+带完整 metadata 的示例：
 
 ```jsonl
 {"chunk_id":"p1","content":"华为手机支持66W快充。","metadata":{"brand":"华为","category":"phone"}}
@@ -146,7 +171,7 @@ numeric_confusion
 semantic_only
 ```
 
-`url`、`page`、`id`、时间戳等非语义字段会被忽略，避免污染诊断标签。
+`url`、`page`、`id`、时间戳等非语义字段会被自动忽略，避免污染诊断标签。
 
 ### testset.json
 
@@ -365,6 +390,9 @@ RAGProbe 会向子进程 stdin 逐行写入请求：
 [{"chunk_id":"buyer_payment_30","content":"买方逾期付款超过30天，应按未付款金额支付违约金。","score":0.95}]
 ```
 
+这个协议对任何语言都一样：Java、Go、Rust、C#、PHP 只要能读 stdin、写 stdout
+JSONL，就能接入。
+
 Node.js 最小示例：
 
 ```javascript
@@ -397,21 +425,60 @@ rl.on("line", (line) => {
 });
 ```
 
+Java 最小示例：
+
+```java
+import java.io.*;
+import org.json.*;
+
+public class RagProbeRetriever {
+    public static void main(String[] args) throws Exception {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            JSONObject req = new JSONObject(line);
+            String query = req.getString("query");
+            int topK = req.getInt("top_k");
+
+            // 替换为你的实际检索逻辑
+            JSONArray results = search(query, topK);
+            System.out.println(results.toString());
+        }
+    }
+
+    static JSONArray search(String query, int topK) {
+        // 调用 Milvus / ES / 你的检索服务
+        JSONArray arr = new JSONArray();
+        arr.put(new JSONObject()
+            .put("chunk_id", "algo_001")
+            .put("content", "二分查找是一种在有序数组中查找元素的算法...")
+            .put("score", 0.95));
+        return arr;
+    }
+}
+```
+
 运行：
 
 ```bash
+# Node.js
 python -m ragprobe run \
-  --testset examples/contract/testset.json \
-  --retriever-cmd "node examples/contract/node_jsonl_retriever.js" \
+  --testset testset.json \
+  --retriever-cmd "node my_retriever.js" \
   --output .tmp/node-results.json
-```
 
-这个协议对任何语言都一样：Java、Go、Rust、C#、PHP 只要能读 stdin、写 stdout
-JSONL，就能接入。
+# Java
+python -m ragprobe run \
+  --testset testset.json \
+  --retriever-cmd "java -cp your-app.jar RagProbeRetriever" \
+  --output .tmp/java-results.json
+```
 
 ### 方式三：HTTP endpoint
 
-单条请求：
+适合直接测试已运行的 Java/Go/Node.js 服务，不需要写任何适配代码。
+
+单条请求协议：
 
 ```http
 POST /search
@@ -432,7 +499,62 @@ Content-Type: application/json
 ]
 ```
 
-运行：
+CLI 运行（不需要配置文件）：
+
+```bash
+python -m ragprobe run \
+  --testset examples/contract/testset.json \
+  --endpoint http://127.0.0.1:8008/search \
+  --output .tmp/http-results.json
+```
+
+Python API 运行（所有参数直接传入）：
+
+```python
+from ragprobe import RAGProbe
+
+probe = RAGProbe()
+result = probe.pipeline(
+    testset="testset.json",
+    endpoint="http://localhost:8080/search",
+    headers={"Authorization": "Bearer dev-token"},
+    timeout=10,
+    top_k=5,
+    min_hit_rate=0.7,
+)
+```
+
+如果你的服务返回格式不同（比如 Spring Boot 常见的嵌套结构），只需加一个薄
+Controller 做格式转换：
+
+```java
+// Spring Boot 适配示例
+@PostMapping("/ragprobe/search")
+public List<Map<String, Object>> search(@RequestBody Map<String, Object> req) {
+    String query = (String) req.get("query");
+    int topK = (int) req.getOrDefault("top_k", 10);
+
+    List<SearchResult> results = ragService.search(query, topK);
+
+    return results.stream().map(r -> Map.of(
+        "chunk_id", r.getId(),
+        "content", r.getContent(),
+        "score", r.getScore()
+    )).collect(Collectors.toList());
+}
+```
+
+仍然支持 `endpoint_config.json`（向后兼容）：
+
+```json
+{
+  "headers": {
+    "Authorization": "Bearer dev-token"
+  },
+  "timeout": 30,
+  "batch_size": 2
+}
+```
 
 ```bash
 python -m ragprobe run \
@@ -442,19 +564,69 @@ python -m ragprobe run \
   --output .tmp/http-results.json
 ```
 
-`endpoint_config.json` 可配置 headers、timeout、batch size：
+## Python API
 
-```json
-{
-  "headers": {
-    "Authorization": "Bearer dev-token"
-  },
-  "timeout": 30,
-  "batch_size": 1
-}
+### 一站式 Pipeline
+
+`pipeline()` 方法将数据准备、检索执行、诊断分析、CI 检查合并为一次调用，
+所有配置通过参数传入，不需要任何 JSON 配置文件：
+
+```python
+from ragprobe import RAGProbe
+
+probe = RAGProbe()
+
+# 最简用法：已有 testset + 内置 baseline
+result = probe.pipeline(
+    testset="testset.json",
+    baseline="lexical",
+)
+print(result.report.hit_rate, result.report.mrr)
+
+# 测 Java/Spring Boot 服务，无需配置文件
+result = probe.pipeline(
+    testset="algorithm_testset.json",
+    endpoint="http://localhost:8080/search",
+    headers={"Authorization": "Bearer your-token"},
+    top_k=5,
+    min_hit_rate=0.85,
+    max_fpr=0.10,
+)
+if not result.check.passed:
+    print("检索质量未达标！")
+
+# 从 chunks 自动生成 testset + 跑检索 + 出报告 + 保存所有产物
+result = probe.pipeline(
+    chunks="algorithm_chunks.jsonl",
+    endpoint="http://localhost:8080/search",
+    headers={"X-Api-Key": "dev-key"},
+    num_cases=20,
+    top_k=10,
+    output_dir="./ragprobe_output",
+)
+
+# 未来接数据库 connector（source 对象需暴露 export() 方法）
+result = probe.pipeline(
+    source=your_milvus_source,
+    endpoint="http://localhost:8080/search",
+    min_hit_rate=0.80,
+)
 ```
 
-## Python API
+`pipeline()` 返回 `PipelineResult`，包含：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `testset` | `TestSet` | 使用的测试集（传入的或自动生成的） |
+| `results` | `list[RetrievalResult]` | 每条 query 的检索结果 |
+| `report` | `DiagnosticReport` | 诊断报告（hit_rate, mrr, fpr 等） |
+| `check` | `CheckResult \| None` | CI 阈值检查结果（传了阈值参数才有） |
+
+传 `output_dir` 时自动保存 `testset.json`、`results.json`、`report.json`、`report.md`。
+
+### 分步调用
+
+如果需要更细粒度的控制，可以分步调用：
 
 ```python
 from ragprobe import RAGProbe
@@ -511,6 +683,15 @@ audit = probe.audit(
     sample_size=5,
 )
 
+# run() 现在支持直接传 headers，不再需要 endpoint_config.json
+results = probe.run(
+    testset=testset,
+    endpoint="http://localhost:8080/search",
+    headers={"Authorization": "Bearer token"},
+    timeout=10,
+    top_k=5,
+)
+
 results = probe.run(
     testset=testset,
     retriever="examples/contract/python_retriever.py",
@@ -542,9 +723,603 @@ report = probe.experiment(
 )
 ```
 
-## 对比、实验与 CI
+## 数据源接入模板
 
-对比两版 retriever：
+`pipeline(source=xxx)` 接受任何暴露 `export()` 方法的对象，返回 chunk 列表。
+以下是各种常见 RAG 数据源的接入模板，复制后修改字段名即可使用。
+
+### source 协议
+
+```python
+class YourSource:
+    def export(self) -> list[dict]:
+        """返回 chunk 列表，每个 chunk 至少包含 chunk_id 和 content。"""
+        return [
+            {
+                "chunk_id": "unique_id",
+                "content": "chunk 文本内容",
+                "metadata": {"key": "value"},       # 可选
+                "source_document": "来源文件名",     # 可选
+            }
+        ]
+```
+
+使用方式统一为：
+
+```python
+from ragprobe import RAGProbe
+
+probe = RAGProbe()
+result = probe.pipeline(
+    source=YourSource(...),
+    endpoint="http://localhost:8080/search",
+    min_hit_rate=0.85,
+)
+```
+
+---
+
+### Milvus
+
+```python
+class MilvusSource:
+    def __init__(self, uri, collection, content_field="content",
+                 id_field="chunk_id", metadata_fields=None, limit=10000):
+        self.uri = uri
+        self.collection = collection
+        self.content_field = content_field
+        self.id_field = id_field
+        self.metadata_fields = metadata_fields or []
+        self.limit = limit
+
+    def export(self):
+        from pymilvus import connections, Collection
+
+        connections.connect(uri=self.uri)
+        col = Collection(self.collection)
+        col.load()
+
+        output_fields = [self.id_field, self.content_field] + self.metadata_fields
+        results = col.query(expr="", output_fields=output_fields, limit=self.limit)
+
+        chunks = []
+        for r in results:
+            chunks.append({
+                "chunk_id": str(r[self.id_field]),
+                "content": r[self.content_field],
+                "metadata": {f: r.get(f) for f in self.metadata_fields if r.get(f) is not None},
+            })
+        connections.disconnect("default")
+        return chunks
+```
+
+使用：
+
+```python
+source = MilvusSource(
+    uri="http://localhost:19530",
+    collection="algorithm_knowledge",
+    content_field="text",
+    id_field="doc_id",
+    metadata_fields=["topic", "category", "difficulty"],
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### Elasticsearch / OpenSearch
+
+```python
+class ElasticsearchSource:
+    def __init__(self, hosts, index, content_field="content",
+                 id_field="_id", metadata_fields=None, query=None, size=10000):
+        self.hosts = hosts
+        self.index = index
+        self.content_field = content_field
+        self.id_field = id_field
+        self.metadata_fields = metadata_fields or []
+        self.query = query or {"match_all": {}}
+        self.size = size
+
+    def export(self):
+        from elasticsearch import Elasticsearch, helpers
+
+        es = Elasticsearch(self.hosts)
+        fields = [self.content_field] + self.metadata_fields
+
+        chunks = []
+        for hit in helpers.scan(es, index=self.index, query={"query": self.query},
+                                _source=fields, size=self.size):
+            source = hit["_source"]
+            chunk_id = hit[self.id_field] if self.id_field == "_id" else source.get(self.id_field, hit["_id"])
+            chunks.append({
+                "chunk_id": str(chunk_id),
+                "content": source[self.content_field],
+                "metadata": {f: source[f] for f in self.metadata_fields if f in source},
+            })
+        return chunks
+```
+
+使用：
+
+```python
+source = ElasticsearchSource(
+    hosts=["http://localhost:9200"],
+    index="algorithm_docs",
+    content_field="text",
+    metadata_fields=["topic", "source_file"],
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### Qdrant
+
+```python
+class QdrantSource:
+    def __init__(self, url, collection, content_key="content",
+                 id_key=None, limit=10000):
+        self.url = url
+        self.collection = collection
+        self.content_key = content_key
+        self.id_key = id_key
+        self.limit = limit
+
+    def export(self):
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(url=self.url)
+        points, offset = [], None
+
+        while True:
+            result = client.scroll(
+                collection_name=self.collection,
+                limit=min(self.limit, 1000),
+                offset=offset,
+                with_payload=True,
+            )
+            batch, offset = result
+            if not batch:
+                break
+            points.extend(batch)
+            if offset is None or len(points) >= self.limit:
+                break
+
+        chunks = []
+        for point in points:
+            payload = point.payload or {}
+            chunk_id = payload.get(self.id_key, str(point.id)) if self.id_key else str(point.id)
+            content = payload.get(self.content_key, "")
+            metadata = {k: v for k, v in payload.items() if k not in (self.content_key, self.id_key)}
+            chunks.append({"chunk_id": chunk_id, "content": content, "metadata": metadata})
+        return chunks
+```
+
+使用：
+
+```python
+source = QdrantSource(
+    url="http://localhost:6333",
+    collection="algorithm_knowledge",
+    content_key="text",
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### Redis（向量检索模式）
+
+```python
+class RedisSource:
+    def __init__(self, url, prefix="doc:", content_field="content",
+                 id_field=None, metadata_fields=None, limit=10000):
+        self.url = url
+        self.prefix = prefix
+        self.content_field = content_field
+        self.id_field = id_field
+        self.metadata_fields = metadata_fields or []
+        self.limit = limit
+
+    def export(self):
+        import redis
+
+        r = redis.from_url(self.url)
+        cursor, chunks = 0, []
+
+        while True:
+            cursor, keys = r.scan(cursor=cursor, match=f"{self.prefix}*", count=500)
+            for key in keys:
+                if len(chunks) >= self.limit:
+                    break
+                data = r.hgetall(key)
+                if not data:
+                    continue
+                decoded = {k.decode(): v.decode() for k, v in data.items()
+                           if k.decode() != "embedding"}
+                chunk_id = decoded.get(self.id_field, key.decode().removeprefix(self.prefix)) if self.id_field else key.decode().removeprefix(self.prefix)
+                content = decoded.get(self.content_field, "")
+                metadata = {f: decoded[f] for f in self.metadata_fields if f in decoded}
+                chunks.append({"chunk_id": chunk_id, "content": content, "metadata": metadata})
+            if cursor == 0 or len(chunks) >= self.limit:
+                break
+        return chunks
+```
+
+使用：
+
+```python
+source = RedisSource(
+    url="redis://localhost:6379",
+    prefix="algo:",
+    content_field="text",
+    metadata_fields=["topic", "difficulty"],
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### PostgreSQL（pgvector 或纯文本检索）
+
+```python
+class PostgresSource:
+    def __init__(self, dsn, table, content_column="content",
+                 id_column="id", metadata_columns=None, where=None, limit=10000):
+        self.dsn = dsn
+        self.table = table
+        self.content_column = content_column
+        self.id_column = id_column
+        self.metadata_columns = metadata_columns or []
+        self.where = where
+        self.limit = limit
+
+    def export(self):
+        import psycopg2
+
+        conn = psycopg2.connect(self.dsn)
+        cur = conn.cursor()
+
+        columns = [self.id_column, self.content_column] + self.metadata_columns
+        sql = f"SELECT {', '.join(columns)} FROM {self.table}"
+        if self.where:
+            sql += f" WHERE {self.where}"
+        sql += f" LIMIT {self.limit}"
+
+        cur.execute(sql)
+        col_names = [desc[0] for desc in cur.description]
+
+        chunks = []
+        for row in cur.fetchall():
+            record = dict(zip(col_names, row))
+            chunks.append({
+                "chunk_id": str(record[self.id_column]),
+                "content": record[self.content_column],
+                "metadata": {c: record[c] for c in self.metadata_columns if record.get(c) is not None},
+            })
+        cur.close()
+        conn.close()
+        return chunks
+```
+
+使用：
+
+```python
+source = PostgresSource(
+    dsn="postgresql://user:pass@localhost:5432/ragdb",
+    table="knowledge_chunks",
+    content_column="chunk_text",
+    id_column="chunk_id",
+    metadata_columns=["topic", "source_file", "created_at"],
+    where="category = 'algorithm'",
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### MySQL / MariaDB
+
+```python
+class MySQLSource:
+    def __init__(self, host, database, table, content_column="content",
+                 id_column="id", metadata_columns=None, where=None,
+                 user="root", password="", port=3306, limit=10000):
+        self.host = host
+        self.database = database
+        self.table = table
+        self.content_column = content_column
+        self.id_column = id_column
+        self.metadata_columns = metadata_columns or []
+        self.where = where
+        self.user = user
+        self.password = password
+        self.port = port
+        self.limit = limit
+
+    def export(self):
+        import pymysql
+
+        conn = pymysql.connect(
+            host=self.host, port=self.port, user=self.user,
+            password=self.password, database=self.database, charset="utf8mb4",
+        )
+        cur = conn.cursor(pymysql.cursors.DictCursor)
+
+        columns = [self.id_column, self.content_column] + self.metadata_columns
+        sql = f"SELECT {', '.join(columns)} FROM {self.table}"
+        if self.where:
+            sql += f" WHERE {self.where}"
+        sql += f" LIMIT {self.limit}"
+
+        cur.execute(sql)
+        chunks = []
+        for row in cur.fetchall():
+            chunks.append({
+                "chunk_id": str(row[self.id_column]),
+                "content": row[self.content_column],
+                "metadata": {c: row[c] for c in self.metadata_columns if row.get(c) is not None},
+            })
+        cur.close()
+        conn.close()
+        return chunks
+```
+
+使用：
+
+```python
+source = MySQLSource(
+    host="localhost",
+    database="rag_system",
+    table="algorithm_chunks",
+    content_column="text",
+    id_column="chunk_id",
+    metadata_columns=["topic", "difficulty"],
+    where="collection_name = 'algorithm'",
+    user="root",
+    password="your_password",
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### MongoDB
+
+```python
+class MongoSource:
+    def __init__(self, uri, database, collection, content_field="content",
+                 id_field="_id", metadata_fields=None, filter=None, limit=10000):
+        self.uri = uri
+        self.database = database
+        self.collection = collection
+        self.content_field = content_field
+        self.id_field = id_field
+        self.metadata_fields = metadata_fields or []
+        self.filter = filter or {}
+        self.limit = limit
+
+    def export(self):
+        from pymongo import MongoClient
+
+        client = MongoClient(self.uri)
+        col = client[self.database][self.collection]
+
+        projection = {self.content_field: 1, self.id_field: 1}
+        for f in self.metadata_fields:
+            projection[f] = 1
+
+        chunks = []
+        for doc in col.find(self.filter, projection).limit(self.limit):
+            chunk_id = str(doc.get(self.id_field, doc.get("_id")))
+            chunks.append({
+                "chunk_id": chunk_id,
+                "content": doc.get(self.content_field, ""),
+                "metadata": {f: doc[f] for f in self.metadata_fields if f in doc},
+            })
+        client.close()
+        return chunks
+```
+
+使用：
+
+```python
+source = MongoSource(
+    uri="mongodb://localhost:27017",
+    database="rag",
+    collection="algorithm_knowledge",
+    content_field="text",
+    metadata_fields=["topic", "tags"],
+    filter={"status": "active"},
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### Weaviate
+
+```python
+class WeaviateSource:
+    def __init__(self, url, class_name, content_property="content",
+                 metadata_properties=None, limit=10000):
+        self.url = url
+        self.class_name = class_name
+        self.content_property = content_property
+        self.metadata_properties = metadata_properties or []
+        self.limit = limit
+
+    def export(self):
+        import weaviate
+
+        client = weaviate.Client(self.url)
+        properties = [self.content_property] + self.metadata_properties
+
+        result = (
+            client.query
+            .get(self.class_name, properties)
+            .with_additional(["id"])
+            .with_limit(self.limit)
+            .do()
+        )
+
+        objects = result.get("data", {}).get("Get", {}).get(self.class_name, [])
+        chunks = []
+        for obj in objects:
+            chunk_id = obj.get("_additional", {}).get("id", "")
+            chunks.append({
+                "chunk_id": chunk_id,
+                "content": obj.get(self.content_property, ""),
+                "metadata": {p: obj[p] for p in self.metadata_properties if p in obj},
+            })
+        return chunks
+```
+
+使用：
+
+```python
+source = WeaviateSource(
+    url="http://localhost:8080",
+    class_name="AlgorithmChunk",
+    content_property="text",
+    metadata_properties=["topic", "difficulty"],
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:9090/search")
+```
+
+---
+
+### 本地文件目录（非向量化，适合 lexical / grep 类检索）
+
+```python
+class FileDirectorySource:
+    def __init__(self, directory, glob_pattern="**/*.md",
+                 chunk_by="file", max_chunk_chars=1000):
+        self.directory = directory
+        self.glob_pattern = glob_pattern
+        self.chunk_by = chunk_by
+        self.max_chunk_chars = max_chunk_chars
+
+    def export(self):
+        from pathlib import Path
+
+        base = Path(self.directory)
+        chunks = []
+
+        for filepath in sorted(base.glob(self.glob_pattern)):
+            text = filepath.read_text(encoding="utf-8", errors="ignore")
+            rel_path = str(filepath.relative_to(base))
+
+            if self.chunk_by == "file":
+                chunks.append({
+                    "chunk_id": rel_path,
+                    "content": text[:self.max_chunk_chars],
+                    "metadata": {"source_file": rel_path},
+                    "source_document": rel_path,
+                })
+            elif self.chunk_by == "paragraph":
+                paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+                for i, para in enumerate(paragraphs):
+                    chunks.append({
+                        "chunk_id": f"{rel_path}#p{i}",
+                        "content": para[:self.max_chunk_chars],
+                        "metadata": {"source_file": rel_path, "paragraph": i},
+                        "source_document": rel_path,
+                    })
+        return chunks
+```
+
+使用：
+
+```python
+# 适合测试基于文件的 grep / lexical 检索系统
+source = FileDirectorySource(
+    directory="./docs/algorithms",
+    glob_pattern="**/*.md",
+    chunk_by="paragraph",
+    max_chunk_chars=2000,
+)
+result = probe.pipeline(source=source, baseline="lexical")
+```
+
+---
+
+### HTTP API 导出（从已有管理接口拉取）
+
+```python
+class HTTPExportSource:
+    def __init__(self, url, headers=None, id_path="id",
+                 content_path="content", metadata_paths=None):
+        self.url = url
+        self.headers = headers or {}
+        self.id_path = id_path
+        self.content_path = content_path
+        self.metadata_paths = metadata_paths or []
+
+    def export(self):
+        import urllib.request
+        import json
+
+        req = urllib.request.Request(self.url, headers=self.headers)
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        items = data if isinstance(data, list) else data.get("items", data.get("data", []))
+        chunks = []
+        for item in items:
+            chunks.append({
+                "chunk_id": str(self._get_nested(item, self.id_path)),
+                "content": str(self._get_nested(item, self.content_path)),
+                "metadata": {p: self._get_nested(item, p) for p in self.metadata_paths
+                             if self._get_nested(item, p) is not None},
+            })
+        return chunks
+
+    @staticmethod
+    def _get_nested(obj, path):
+        for key in path.split("."):
+            if isinstance(obj, dict):
+                obj = obj.get(key)
+            else:
+                return None
+        return obj
+```
+
+使用：
+
+```python
+# 从你的 Java 管理端接口拉取知识库
+source = HTTPExportSource(
+    url="http://localhost:8080/internal/knowledge/chunks?collection=algorithm",
+    headers={"Authorization": "Bearer admin-token"},
+    id_path="chunkId",
+    content_path="content",
+    metadata_paths=["topic", "metadata.category"],
+)
+result = probe.pipeline(source=source, endpoint="http://localhost:8080/search")
+```
+
+---
+
+### 自定义 source
+
+任何满足 `export()` 协议的对象都可以作为 source：
+
+```python
+class CustomSource:
+    def export(self):
+        # 你的任意逻辑：调 gRPC、读 Parquet、查 SQLite...
+        return [
+            {"chunk_id": "1", "content": "...", "metadata": {}},
+            {"chunk_id": "2", "content": "...", "metadata": {}},
+        ]
+
+result = probe.pipeline(source=CustomSource(), baseline="lexical")
+```
+
+## 对比、实验与 CI
 
 ```bash
 python -m ragprobe compare \

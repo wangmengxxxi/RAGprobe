@@ -135,3 +135,11 @@ class ComparisonReport:
     improved_cases: list[str] = field(default_factory=list)
     regressed_cases: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PipelineResult:
+    testset: TestSet
+    results: list["RetrievalResult"]
+    report: DiagnosticReport
+    check: Any | None = None

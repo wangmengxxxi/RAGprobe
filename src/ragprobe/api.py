@@ -26,7 +26,13 @@ from ragprobe.core.llm_generation import (
     generate_testset_from_chunks_llm,
 )
 from ragprobe.core.matching import apply_content_fallback
-from ragprobe.core.models import ComparisonReport, DiagnosticReport, RetrievalResult, TestSet
+from ragprobe.core.models import (
+    ComparisonReport,
+    DiagnosticReport,
+    PipelineResult,
+    RetrievalResult,
+    TestSet,
+)
 from ragprobe.core.repair import (
     RepairApplyResult,
     RepairPlan,
@@ -35,6 +41,7 @@ from ragprobe.core.repair import (
     save_repair_plan,
 )
 from ragprobe.core.runner import (
+    EndpointConfig,
     load_endpoint_config,
     run_endpoint,
     run_retriever,
@@ -215,6 +222,7 @@ class RAGProbe:
         endpoint: str | None = None,
         baseline: str | None = None,
         endpoint_config: str | Path | None = None,
+        headers: dict[str, str] | None = None,
         output: str | Path | None = None,
         top_k: int = 10,
         timeout: float = 30.0,
@@ -264,14 +272,14 @@ class RAGProbe:
                 content_fallback_threshold=content_match_threshold,
             )
         else:
-            config = load_endpoint_config(endpoint_config)
+            config = load_endpoint_config(endpoint_config) if endpoint_config else EndpointConfig()
             results = run_endpoint(
                 loaded_testset,
                 endpoint or "",
                 top_k=top_k,
-                timeout=config.timeout if endpoint_config else timeout,
-                headers=config.headers,
-                batch_size=config.batch_size if endpoint_config else batch_size,
+                timeout=timeout if not endpoint_config else config.timeout,
+                headers=headers if headers is not None else config.headers,
+                batch_size=batch_size if not endpoint_config else config.batch_size,
                 content_fallback_threshold=content_match_threshold,
             )
 
@@ -475,6 +483,7 @@ class RAGProbe:
         endpoint: str | None = None,
         baseline: str | None = None,
         endpoint_config: str | Path | None = None,
+        headers: dict[str, str] | None = None,
         llm: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
@@ -483,6 +492,10 @@ class RAGProbe:
         num_cases: int | None = None,
         hard_negative_top_k: int = 1,
         top_k: int = 10,
+        timeout: float = 30.0,
+        batch_size: int = 1,
+        content_match_threshold: float = 0.9,
+        embedding_dimensions: int = 256,
         llm_validate: bool = False,
     ) -> DiagnosticReport:
         if testset is None:
@@ -507,9 +520,110 @@ class RAGProbe:
             endpoint=endpoint,
             baseline=baseline,
             endpoint_config=endpoint_config,
+            headers=headers,
             top_k=top_k,
+            timeout=timeout,
+            batch_size=batch_size,
+            content_match_threshold=content_match_threshold,
+            embedding_dimensions=embedding_dimensions,
         )
         return self.diagnose(testset=testset, results=results)
+
+    def pipeline(
+        self,
+        *,
+        testset: TestSet | str | Path | None = None,
+        chunks: str | Path | list | None = None,
+        source: Any | None = None,
+        num_cases: int | None = None,
+        hard_negative_top_k: int = 1,
+        hn_strategy: str = "hybrid",
+        domain_hint: str | None = None,
+        retriever: str | Path | None = None,
+        retriever_fn=None,
+        retriever_cmd: str | None = None,
+        endpoint: str | None = None,
+        baseline: str | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 30.0,
+        batch_size: int = 1,
+        top_k: int = 10,
+        content_match_threshold: float = 0.9,
+        embedding_dimensions: int = 256,
+        min_hit_rate: float | None = None,
+        min_mrr: float | None = None,
+        max_fpr: float | None = None,
+        output_dir: str | Path | None = None,
+    ) -> PipelineResult:
+        if testset is not None:
+            loaded_testset = _coerce_testset(testset)
+        elif chunks is not None:
+            loaded_testset = self.generate(
+                chunks=chunks,
+                num_cases=num_cases,
+                hard_negative_top_k=hard_negative_top_k,
+                hn_strategy=hn_strategy,
+                domain_hint=domain_hint,
+            )
+        elif source is not None:
+            if not hasattr(source, "export"):
+                raise ValueError("source must have an export() method returning a list of chunks")
+            raw_chunks = source.export()
+            loaded_testset = self.generate(
+                chunks=raw_chunks,
+                num_cases=num_cases,
+                hard_negative_top_k=hard_negative_top_k,
+                hn_strategy=hn_strategy,
+                domain_hint=domain_hint,
+            )
+        else:
+            raise ValueError("pipeline requires testset, chunks, or source")
+
+        results = self.run(
+            testset=loaded_testset,
+            retriever=retriever,
+            retriever_fn=retriever_fn,
+            retriever_cmd=retriever_cmd,
+            endpoint=endpoint,
+            baseline=baseline,
+            headers=headers,
+            top_k=top_k,
+            timeout=timeout,
+            batch_size=batch_size,
+            content_match_threshold=content_match_threshold,
+            embedding_dimensions=embedding_dimensions,
+        )
+
+        report = self.diagnose(testset=loaded_testset, results=results)
+
+        check_result = None
+        if min_hit_rate is not None or min_mrr is not None or max_fpr is not None:
+            check_result = self.check(
+                report,
+                min_hit_rate=min_hit_rate,
+                min_mrr=min_mrr,
+                max_fpr=max_fpr,
+            )
+
+        if output_dir:
+            out = Path(output_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            save_json(loaded_testset, out / "testset.json")
+            save_json(
+                {"metadata": schema_metadata(SCHEMA_RESULTS), "results": results},
+                out / "results.json",
+            )
+            save_json(report, out / "report.json")
+            from ragprobe.reports.markdown import render_markdown
+
+            _write_text(out / "report.md", render_markdown(report))
+
+        return PipelineResult(
+            testset=loaded_testset,
+            results=results,
+            report=report,
+            check=check_result,
+        )
 
 
 def _coerce_testset(testset: TestSet | str | Path) -> TestSet:
@@ -534,4 +648,4 @@ def _resolve_api_key(*, api_key: str | None, api_key_env: str) -> str:
     return os.environ.get(api_key_env, "")
 
 
-__all__ = ["RAGProbe", "LLMGenerationError"]
+__all__ = ["RAGProbe", "LLMGenerationError", "PipelineResult"]
